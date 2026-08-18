@@ -12,14 +12,9 @@ ENV['RCT_NEW_ARCH_ENABLED'] = '1'
 
 platform :ios, '16.4'
 prepare_react_native_project!
-use_modular_headers!
 use_expo_modules!
-
-linkage = ENV['USE_FRAMEWORKS']
-if linkage != nil
-  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
-  use_frameworks! :linkage => linkage.to_sym
-end
+use_frameworks! :linkage => :static
+$RNFirebaseAsStaticFramework = true
 
 target 'CoffeeLoyalty' do
   config = use_native_modules!
