@@ -8,6 +8,10 @@ require Pod::Executable.execute_command('node', ['-p',
 # Expo bare workflow needs this for proper pod autolinking.
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
+# React Native 0.86 + some generated pods (ReactAppDependencyProvider) can fail
+# during CocoaPods resolution when the New Architecture is enabled.
+ENV['RCT_NEW_ARCH_ENABLED'] = '0'
+
 platform :ios, '16.0'
 prepare_react_native_project!
 use_expo_modules!
@@ -27,6 +31,14 @@ target 'CoffeeLoyalty' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
+  pre_install do |installer|
+    installer.pod_targets.each do |pod_target|
+      pod_target.build_configurations.each do |build_config|
+        build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+      end
+    end
+  end
+
   post_install do |installer|
     react_native_post_install(
       installer,
@@ -35,19 +47,18 @@ target 'CoffeeLoyalty' do
       # :ccache_enabled => true
     )
 
-    # Ensure generated React Native pods all honor the app minimum iOS version.
     minimum_ios_version = '16.0'
 
     installer.pods_project.targets.each do |target|
-      target.build_configurations.each do |config|
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios_version
+      target.build_configurations.each do |build_config|
+        build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios_version
       end
     end
 
     installer.generated_projects.each do |project|
       project.targets.each do |target|
-        target.build_configurations.each do |config|
-          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios_version
+        target.build_configurations.each do |build_config|
+          build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios_version
         end
       end
     end
