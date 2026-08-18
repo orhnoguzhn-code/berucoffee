@@ -30,14 +30,6 @@ target 'CoffeeLoyalty' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
-  pre_install do |installer|
-    installer.pod_targets.each do |pod_target|
-      pod_target.build_configurations.each do |build_config|
-        build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
-      end
-    end
-  end
-
   post_install do |installer|
     react_native_post_install(
       installer,
