@@ -30,5 +30,13 @@ target 'CoffeeLoyalty' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+    
+    # Set minimum deployment target for all pods
+    installer.pods_project.targets.each do |target|
+      minimum_deployment_target = '14.0'
+      if Gem::Version.new(target.deployment_target) < Gem::Version.new(minimum_deployment_target)
+        target.deployment_target = minimum_deployment_target
+      end
+    end
   end
 end
