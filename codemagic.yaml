@@ -1,3 +1,6 @@
+integrations:
+  app_store_connect: $CODEMAGIC_APP_STORE_CONNECT
+
 workflows:
   ios-build:
     name: React Native iOS Build
@@ -88,6 +91,7 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
+        submit_to_testflight: true
       email:
         recipients:
           - your-email@example.com
