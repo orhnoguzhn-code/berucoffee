@@ -54,11 +54,6 @@ workflows:
         XCODE_WORKSPACE: ios/CoffeeLoyalty.xcworkspace
         XCODE_SCHEME: CoffeeLoyalty
         BUNDLE_ID: com.berucoffee.coffeeapp
-        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
-        APP_STORE_CONNECT_KEY_IDENTIFIER: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
-        CODE_SIGN_IDENTITY: iPhone Distribution
-        PROVISIONING_PROFILE: $PROVISIONING_PROFILE
       node: 18.16.0
       xcode: latest
     scripts:
@@ -92,9 +87,7 @@ workflows:
       - build/dSYMs/**/*
     publishing:
       app_store_connect:
-        auth: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_identifier: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        auth: integration
       email:
         recipients:
           - your-email@example.com
