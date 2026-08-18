@@ -1,15 +1,9 @@
-integrations:
-  app_store_connect: $CODEMAGIC_APP_STORE_CONNECT
-
 workflows:
   ios-build:
     name: React Native iOS Build
     instance_type: mac_mini_m1
+    max_build_duration: 60
     environment:
-      vars:
-        XCODE_WORKSPACE: ios/CoffeeLoyalty.xcworkspace
-        XCODE_SCHEME: CoffeeLoyalty
-        BUNDLE_ID: com.berucoffee.coffeeapp
       node: 18.16.0
       xcode: latest
     scripts:
@@ -21,14 +15,7 @@ workflows:
           cd ios
           pod install
           cd ..
-      - name: Build iOS app
-        script: |
-          xcodebuild build-for-testing \
-            -workspace ios/CoffeeLoyalty.xcworkspace \
-            -scheme CoffeeLoyalty \
-            -derivedDataPath build/DerivedData \
-            -destination generic/platform=iOS
-      - name: Archive app for release
+      - name: Build and archive
         script: |
           xcodebuild -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
@@ -38,25 +25,20 @@ workflows:
             archive
     artifacts:
       - build/CoffeeLoyalty.xcarchive/**/*
+      - build/DerivedData/**/*
     publishing:
       email:
         recipients:
-          - your-email@example.com
+          - orhnoguzhn@gmail.com
         notify:
           success: true
           failure: true
-      slack:
-        channel: '#builds'
-        notify_on_build_start: true
-        
+  
   ios-build-ipa:
-    name: React Native iOS Build IPA
+    name: React Native iOS Build and Export IPA
     instance_type: mac_mini_m1
+    max_build_duration: 60
     environment:
-      vars:
-        XCODE_WORKSPACE: ios/CoffeeLoyalty.xcworkspace
-        XCODE_SCHEME: CoffeeLoyalty
-        BUNDLE_ID: com.berucoffee.coffeeapp
       node: 18.16.0
       xcode: latest
     scripts:
@@ -68,10 +50,9 @@ workflows:
           cd ios
           pod install
           cd ..
-      - name: Build IPA
+      - name: Build and archive
         script: |
-          xcodebuild \
-            -workspace ios/CoffeeLoyalty.xcworkspace \
+          xcodebuild -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
             -configuration Release \
             -derivedDataPath build/DerivedData \
@@ -79,25 +60,17 @@ workflows:
             archive
       - name: Export IPA
         script: |
-          cd build
           xcodebuild -exportArchive \
-            -archivePath CoffeeLoyalty.xcarchive \
-            -exportOptionsPlist ../ios/ExportOptions.plist \
-            -exportPath .
-          cd ..
+            -archivePath build/CoffeeLoyalty.xcarchive \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath build/ipa
     artifacts:
-      - build/**/*.ipa
-      - build/dSYMs/**/*
+      - build/ipa/**/*.ipa
+      - build/CoffeeLoyalty.xcarchive/**/*
     publishing:
-      app_store_connect:
-        auth: integration
-        submit_to_testflight: true
       email:
         recipients:
-          - your-email@example.com
+          - orhnoguzhn@gmail.com
         notify:
           success: true
           failure: true
-      slack:
-        channel: '#builds'
-        notify_on_build_start: true
