@@ -1,34 +1,26 @@
 workflows:
-  ios-build:
-    name: React Native iOS Build
+  default_ios_workflow:
+    name: Default iOS Workflow
     instance_type: mac_mini_m1
+    max_build_duration: 120
     environment:
       node: 18.16.0
-      xcode: latest
     scripts:
-      - name: Checkout code
-        script: |
-          ls -la
-      - name: Install npm dependencies
+      - name: Install dependencies
         script: |
           npm ci
-      - name: Install CocoaPods dependencies
+      - name: Pod install
         script: |
-          cd ios
-          pod install --repo-update
-          cd ..
-      - name: Build iOS app
+          cd ios && pod install && cd ..
+      - name: Build
         script: |
           xcodebuild -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
             -configuration Release \
-            -derivedDataPath build
+            build
     artifacts:
-      - build/Build/Products/**/*.app
+      - build/**/*.app
     publishing:
       email:
         recipients:
           - orhnoguzhn@gmail.com
-        notify:
-          success: true
-          failure: true
