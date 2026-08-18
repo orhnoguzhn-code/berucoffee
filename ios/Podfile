@@ -8,11 +8,9 @@ require Pod::Executable.execute_command('node', ['-p',
 # Expo bare workflow needs this for proper pod autolinking.
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
-# React Native 0.86 + some generated pods (ReactAppDependencyProvider) can fail
-# during CocoaPods resolution when the New Architecture is enabled.
-ENV['RCT_NEW_ARCH_ENABLED'] = '0'
+ENV['RCT_NEW_ARCH_ENABLED'] = '1'
 
-platform :ios, '16.0'
+platform :ios, '16.4'
 prepare_react_native_project!
 use_expo_modules!
 
@@ -27,6 +25,7 @@ target 'CoffeeLoyalty' do
 
   use_react_native!(
     :path => config[:reactNativePath],
+    :new_arch_enabled => true,
     # An absolute path to your application root.
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
@@ -34,7 +33,7 @@ target 'CoffeeLoyalty' do
   pre_install do |installer|
     installer.pod_targets.each do |pod_target|
       pod_target.build_configurations.each do |build_config|
-        build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+        build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
       end
     end
   end
@@ -47,7 +46,7 @@ target 'CoffeeLoyalty' do
       # :ccache_enabled => true
     )
 
-    minimum_ios_version = '16.0'
+    minimum_ios_version = '16.4'
 
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
