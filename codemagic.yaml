@@ -1,0 +1,106 @@
+workflows:
+  ios-build:
+    name: React Native iOS Build
+    instance_type: mac_mini_m1
+    environment:
+      vars:
+        XCODE_WORKSPACE: ios/CoffeeLoyalty.xcworkspace
+        XCODE_SCHEME: CoffeeLoyalty
+        BUNDLE_ID: com.berucoffee.coffeeapp
+      node: 18.16.0
+      xcode: latest
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm install
+      - name: Install iOS dependencies
+        script: |
+          cd ios
+          pod install
+          cd ..
+      - name: Build iOS app
+        script: |
+          xcodebuild build-for-testing \
+            -workspace ios/CoffeeLoyalty.xcworkspace \
+            -scheme CoffeeLoyalty \
+            -derivedDataPath build/DerivedData \
+            -destination generic/platform=iOS
+      - name: Archive app for release
+        script: |
+          xcodebuild -workspace ios/CoffeeLoyalty.xcworkspace \
+            -scheme CoffeeLoyalty \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            -archivePath build/CoffeeLoyalty.xcarchive \
+            archive
+    artifacts:
+      - build/CoffeeLoyalty.xcarchive/**/*
+    publishing:
+      email:
+        recipients:
+          - your-email@example.com
+        notify:
+          success: true
+          failure: true
+      slack:
+        channel: '#builds'
+        notify_on_build_start: true
+        
+  ios-build-ipa:
+    name: React Native iOS Build IPA
+    instance_type: mac_mini_m1
+    environment:
+      vars:
+        XCODE_WORKSPACE: ios/CoffeeLoyalty.xcworkspace
+        XCODE_SCHEME: CoffeeLoyalty
+        BUNDLE_ID: com.berucoffee.coffeeapp
+        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
+        APP_STORE_CONNECT_KEY_IDENTIFIER: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
+        CODE_SIGN_IDENTITY: iPhone Distribution
+        PROVISIONING_PROFILE: $PROVISIONING_PROFILE
+      node: 18.16.0
+      xcode: latest
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm install
+      - name: Install iOS dependencies
+        script: |
+          cd ios
+          pod install
+          cd ..
+      - name: Build IPA
+        script: |
+          xcodebuild \
+            -workspace ios/CoffeeLoyalty.xcworkspace \
+            -scheme CoffeeLoyalty \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            -archivePath build/CoffeeLoyalty.xcarchive \
+            archive
+      - name: Export IPA
+        script: |
+          cd build
+          xcodebuild -exportArchive \
+            -archivePath CoffeeLoyalty.xcarchive \
+            -exportOptionsPlist ../ios/ExportOptions.plist \
+            -exportPath .
+          cd ..
+    artifacts:
+      - build/**/*.ipa
+      - build/dSYMs/**/*
+    publishing:
+      app_store_connect:
+        auth: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_identifier: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+      email:
+        recipients:
+          - your-email@example.com
+        notify:
+          success: true
+          failure: true
+      slack:
+        channel: '#builds'
+        notify_on_build_start: true
