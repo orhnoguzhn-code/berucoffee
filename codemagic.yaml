@@ -2,79 +2,29 @@ workflows:
   ios-build:
     name: React Native iOS Build
     instance_type: mac_mini_m1
-    max_build_duration: 60
     environment:
       node: 18.16.0
       xcode: latest
-    triggering:
-      events:
-        - push
-        - pull_request
     scripts:
-      - name: Install Node dependencies
+      - name: Checkout code
+        script: |
+          ls -la
+      - name: Install npm dependencies
         script: |
           npm ci
-      - name: Install iOS dependencies
+      - name: Install CocoaPods dependencies
         script: |
           cd ios
           pod install --repo-update
           cd ..
-      - name: Build for testing
-        script: |
-          xcodebuild build-for-testing \
-            -workspace ios/CoffeeLoyalty.xcworkspace \
-            -scheme CoffeeLoyalty \
-            -configuration Release \
-            -derivedDataPath build/DerivedData \
-            -destination 'generic/platform=iOS' \
-            -verbose
-    artifacts:
-      - build/DerivedData/Build/Products/**/*.app
-      - build/DerivedData/**/*.dSYM
-    publishing:
-      email:
-        recipients:
-          - orhnoguzhn@gmail.com
-        notify:
-          success: true
-          failure: true
-  
-  ios-build-ipa:
-    name: React Native iOS Build and Export IPA
-    instance_type: mac_mini_m1
-    max_build_duration: 120
-    environment:
-      node: 18.16.0
-      xcode: latest
-    triggering:
-      events:
-        - push
-    scripts:
-      - name: Install Node dependencies
-        script: |
-          npm ci
-      - name: Install iOS dependencies
-        script: |
-          cd ios
-          pod install --repo-update
-          cd ..
-      - name: Build and archive
+      - name: Build iOS app
         script: |
           xcodebuild -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
             -configuration Release \
-            -derivedDataPath build/DerivedData \
-            -archivePath build/CoffeeLoyalty.xcarchive \
-            archive
-      - name: Export IPA
-        script: |
-          xcodebuild -exportArchive \
-            -archivePath build/CoffeeLoyalty.xcarchive \
-            -exportPath build/ipa \
-            -exportOptionsPlist ios/ExportOptions.plist
+            -derivedDataPath build
     artifacts:
-      - build/ipa/**/*.ipa
-      - build/CoffeeLoyalty.xcarchive/**/*
+      - build/Build/Products/**/*.app
     publishing:
       email:
         recipients:
