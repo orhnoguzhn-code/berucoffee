@@ -21,6 +21,8 @@ workflows:
           xcodebuild -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
             -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
             build
     artifacts:
       - build/**/*.app
