@@ -6,16 +6,10 @@ workflows:
     environment:
       node: 18.16.0
       xcode: latest
-      groups:
-        - ios_credentials
     triggering:
       events:
         - push
         - pull_request
-      branch:
-        include:
-          - main
-          - develop
     scripts:
       - name: Install Node dependencies
         script: |
@@ -52,14 +46,9 @@ workflows:
     environment:
       node: 18.16.0
       xcode: latest
-      groups:
-        - ios_credentials
     triggering:
       events:
         - push
-      branch:
-        include:
-          - main
     scripts:
       - name: Install Node dependencies
         script: |
