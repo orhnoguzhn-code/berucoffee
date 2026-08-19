@@ -19,13 +19,13 @@ workflows:
       - name: Build
         script: |
           set -o pipefail
-          npx react-native run-ios \
-            --mode Release \
-            --scheme CoffeeLoyalty \
-            --destination "generic/platform=iOS" \
-            --no-packager \
-            --extra-params "CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO" \
-            --verbose 2>&1 | tee /tmp/ios-build.log
+          xcodebuild -workspace ios/CoffeeLoyalty.xcworkspace \
+            -scheme CoffeeLoyalty \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee /tmp/ios-build.log
           build_status=${PIPESTATUS[0]}
           if [[ "$build_status" -ne 0 ]]; then
             echo "========== Xcode compiler errors =========="
