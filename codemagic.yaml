@@ -5,7 +5,7 @@ workflows:
     max_build_duration: 120
     environment:
       node: 22.12.0
-      xcode: 16.1
+      xcode: 16.4
       cocoapods: default
     scripts:
       - name: Install dependencies
@@ -16,9 +16,17 @@ workflows:
           rm -rf ios/Pods
           rm -rf ios/Podfile.lock
           pod cache clean --all
+          rm -rf ~/.cocoapods/repos/cocoapods
+      - name: Update pod repositories
+        script: |
+          pod repo update --silent
       - name: Pod install
         script: |
-          cd ios && EXPO_USE_SOURCE=1 pod install --repo-update && cd ..
+          cd ios && EXPO_USE_SOURCE=1 pod install --verbose && cd ..
+          if [ ! -f ios/Podfile.lock ]; then
+            echo "ERROR: Podfile.lock not created!"
+            exit 1
+          fi
       - name: Build
         script: |
           set -o pipefail
@@ -29,11 +37,15 @@ workflows:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             SWIFT_ENABLE_EXPLICIT_MODULES=NO \
+            OTHER_SWIFT_FLAGS="-suppress-warnings" \
+            -verbose \
             build 2>&1 | tee /tmp/ios-build.log
           build_status=${PIPESTATUS[0]}
           if [[ "$build_status" -ne 0 ]]; then
             echo "========== Xcode compiler errors =========="
-            grep -E "(^| )error:|fatal error:" /tmp/ios-build.log || true
+            grep -E "(error:|fatal error:|Could not resolve)" /tmp/ios-build.log || true
+            echo "========== Last 100 lines of build log =========="
+            tail -100 /tmp/ios-build.log
           fi
           exit "$build_status"
     artifacts:
