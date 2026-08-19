@@ -5,6 +5,10 @@ require Pod::Executable.execute_command('node', ['-p',
     {paths: [process.argv[1]]},
   )', __dir__]).strip
 
+# Workaround for RNFB + RN 0.84+ prebuilt RNCore module map conflicts.
+# See https://github.com/invertase/react-native-firebase/issues/8912
+ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
+
 # Expo bare workflow needs this for proper pod autolinking.
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
@@ -21,6 +25,18 @@ $RNFirebaseAsStaticFramework = true
 
 # react-native-maps supports use_frameworks! :linkage => :static since v1.6.0.
 $RNMapsAsStaticFramework = true
+
+# RNFB pods must be static libraries (not frameworks) to avoid module boundary
+# issues with React headers under use_frameworks!. See RNFB issue #8930.
+pre_install do |installer|
+  installer.pod_targets.each do |pod|
+    if pod.name.start_with?('RNFB')
+      def pod.build_type
+        Pod::BuildType.static_library
+      end
+    end
+  end
+end
 
 target 'CoffeeLoyalty' do
   config = use_native_modules!
