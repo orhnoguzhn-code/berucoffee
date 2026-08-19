@@ -34,6 +34,13 @@ workflows:
         script: |
           set -o pipefail
           echo "Starting Xcode build at $(date)"
+          
+          # Verify ExpoModulesJSI pod status
+          if [ -f "ios/Pods/Pods.xcodeproj/project.pbxproj" ]; then
+            echo "Checking ExpoModulesJSI target..."
+            grep -i "ExpoModulesJSI" ios/Pods/Pods.xcodeproj/project.pbxproj | head -5
+          fi
+          
           xcodebuild -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
             -configuration Release \
@@ -43,14 +50,15 @@ workflows:
             SWIFT_ENABLE_EXPLICIT_MODULES=NO \
             OTHER_SWIFT_FLAGS="-suppress-warnings" \
             -derivedDataPath ios/build \
+            -disablePackageRepositoryCache \
             build 2>&1 | tee /tmp/ios-build.log
           build_status=${PIPESTATUS[0]}
           if [[ "$build_status" -ne 0 ]]; then
             echo "========== Build FAILED =========="
-            echo "Checking for script phase errors..."
-            grep -E "PhaseScriptExecution|error:|fatal error:|Could not resolve" /tmp/ios-build.log | head -20 || true
+            echo "Looking for package resolution errors..."
+            grep -E "Could not resolve package|PhaseScriptExecution.*ExpoModulesJSI" /tmp/ios-build.log | head -10 || true
           else
-            echo "========== Build SUCCEEDED =========="
+            echo "========== Build SUCCEEDED at $(date) =========="
           fi
           exit "$build_status"
     artifacts:
