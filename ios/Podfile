@@ -5,9 +5,8 @@ require Pod::Executable.execute_command('node', ['-p',
     {paths: [process.argv[1]]},
   )', __dir__]).strip
 
-# Workaround for RNFB + RN 0.84+ prebuilt RNCore module map conflicts.
-# See https://github.com/invertase/react-native-firebase/issues/8912
-ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
+# Required for RNFB pods on RN 0.84+ prebuilt RNCore. See RNFB issue #8930.
+ENV['RCT_REMOVE_LEGACY_ARCH'] = '0'
 
 # Expo bare workflow needs this for proper pod autolinking.
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
@@ -63,6 +62,13 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios_version
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+        if target.name.start_with?('RNFB')
+          defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+          defs = [defs] unless defs.is_a?(Array)
+          defs << 'RCT_REMOVE_LEGACY_ARCH=0' unless defs.include?('RCT_REMOVE_LEGACY_ARCH=0')
+          build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+          build_config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'
+        end
       end
     end
 
