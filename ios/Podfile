@@ -33,6 +33,23 @@ target 'CoffeeLoyalty' do
   )
 
   post_install do |installer|
+    firebase_sources = {
+      File.join(Pod::Config.instance.installation_root, '..', 'node_modules', '@react-native-firebase', 'app', 'ios', 'RNFBApp', 'RNFBAppModule.m') => [
+        '#import <Firebase/Firebase.h>',
+        '#import <FirebaseCore/FirebaseCore.h>'
+      ],
+      File.join(Pod::Config.instance.installation_root, '..', 'node_modules', '@react-native-firebase', 'messaging', 'ios', 'RNFBMessaging', 'RNFBMessagingModule.m') => [
+        '#import <Firebase/Firebase.h>',
+        '#import <FirebaseMessaging/FirebaseMessaging.h>'
+      ]
+    }
+
+    firebase_sources.each do |source_path, replacements|
+      source = File.read(source_path)
+      source = source.sub(replacements[0], replacements[1])
+      File.write(source_path, source)
+    end
+
     react_native_post_install(
       installer,
       config[:reactNativePath],
