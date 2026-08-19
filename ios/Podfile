@@ -12,6 +12,7 @@ ENV['RCT_NEW_ARCH_ENABLED'] = '1'
 
 platform :ios, '16.4'
 prepare_react_native_project!
+use_modular_headers!
 use_expo_modules!
 
 target 'CoffeeLoyalty' do
