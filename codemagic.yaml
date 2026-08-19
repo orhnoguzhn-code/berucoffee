@@ -8,7 +8,7 @@ workflows:
     scripts:
       - name: Install dependencies
         script: |
-          npm install
+          npm ci
       - name: Clean Pod cache
         script: |
           rm -rf ios/Pods
@@ -18,12 +18,19 @@ workflows:
           cd ios && pod install --repo-update && cd ..
       - name: Build
         script: |
+          set -o pipefail
           xcodebuild -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
             -configuration Release \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build
+            build 2>&1 | tee /tmp/ios-build.log
+          build_status=${PIPESTATUS[0]}
+          if [[ "$build_status" -ne 0 ]]; then
+            echo "========== Xcode compiler errors =========="
+            grep -E "(^| )error:|fatal error:" /tmp/ios-build.log || true
+          fi
+          exit "$build_status"
     artifacts:
       - build/**/*.app
     publishing:
