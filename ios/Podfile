@@ -69,6 +69,13 @@ target 'CoffeeLoyalty' do
         # Swift modularization uyumsuzluÄŸu Ã§Ã¶z
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
         build_config.build_settings['ENABLE_MODULAR_HEADERS'] = 'NO'
+        
+        # Release konfigÃ¼rasyonu iÃ§in Xcode 16 optimizasyonlarÄ±
+        if build_config.name == 'Release'
+          build_config.build_settings['SWIFT_COMPILATION_MODE'] = 'wholemodule'
+          build_config.build_settings['GCC_OPTIMIZATION_LEVEL'] = 's'
+        end
+        
         if target.name.start_with?('RNFB')
           defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
           defs = [defs] unless defs.is_a?(Array)
