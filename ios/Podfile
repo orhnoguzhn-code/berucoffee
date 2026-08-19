@@ -12,8 +12,10 @@ ENV['RCT_REMOVE_LEGACY_ARCH'] = '0'
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
 ENV['RCT_NEW_ARCH_ENABLED'] = '1'
-# Xcode 26 prebuilt uyumsuzluÄŸunu Ã§Ã¶zmek iÃ§in Expo modÃ¼llerini source'dan derle
+# Expo modÃ¼llerini source'dan derle
 ENV['EXPO_USE_SOURCE'] = '1'
+# Swift explicit modules'Ä± devre dÄ±ÅŸÄ± bÄ±rak
+ENV['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
 
 platform :ios, '16.4'
 prepare_react_native_project!
@@ -64,6 +66,9 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios_version
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+        # Swift modularization uyumsuzluÄŸu Ã§Ã¶z
+        build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+        build_config.build_settings['ENABLE_MODULAR_HEADERS'] = 'NO'
         if target.name.start_with?('RNFB')
           defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
           defs = [defs] unless defs.is_a?(Array)
@@ -79,13 +84,6 @@ target 'CoffeeLoyalty' do
         target.build_configurations.each do |build_config|
           build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios_version
         end
-      end
-    end
-
-    # Xcode 26 + React-Core-prebuilt uyumluluÄŸu iÃ§in
-    installer.pods_project.targets.each do |target|
-      target.build_configurations.each do |config|
-        config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
       end
     end
   end
