@@ -15,14 +15,17 @@ workflows:
         script: |
           rm -rf ios/Pods
           rm -rf ios/Podfile.lock
+          rm -rf .symlinks/
+          rm -rf ios/.symlinks/
           pod cache clean --all
           rm -rf ~/.cocoapods/repos/cocoapods
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*CoffeeLoyalty*
       - name: Update pod repositories
         script: |
           pod repo update --silent
       - name: Pod install
         script: |
-          cd ios && EXPO_USE_SOURCE=1 pod install --verbose && cd ..
+          cd ios && EXPO_USE_SOURCE=1 pod install --repo-update --verbose && cd ..
           if [ ! -f ios/Podfile.lock ]; then
             echo "ERROR: Podfile.lock not created!"
             exit 1
@@ -30,6 +33,7 @@ workflows:
       - name: Build
         script: |
           set -o pipefail
+          echo "Starting Xcode build at $(date)"
           xcodebuild -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
             -configuration Release \
@@ -38,14 +42,15 @@ workflows:
             CODE_SIGNING_REQUIRED=NO \
             SWIFT_ENABLE_EXPLICIT_MODULES=NO \
             OTHER_SWIFT_FLAGS="-suppress-warnings" \
-            -verbose \
+            -derivedDataPath ios/build \
             build 2>&1 | tee /tmp/ios-build.log
           build_status=${PIPESTATUS[0]}
           if [[ "$build_status" -ne 0 ]]; then
-            echo "========== Xcode compiler errors =========="
-            grep -E "(error:|fatal error:|Could not resolve)" /tmp/ios-build.log || true
-            echo "========== Last 100 lines of build log =========="
-            tail -100 /tmp/ios-build.log
+            echo "========== Build FAILED =========="
+            echo "Checking for script phase errors..."
+            grep -E "PhaseScriptExecution|error:|fatal error:|Could not resolve" /tmp/ios-build.log | head -20 || true
+          else
+            echo "========== Build SUCCEEDED =========="
           fi
           exit "$build_status"
     artifacts:
