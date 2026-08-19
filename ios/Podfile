@@ -12,6 +12,8 @@ ENV['RCT_REMOVE_LEGACY_ARCH'] = '0'
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
 ENV['RCT_NEW_ARCH_ENABLED'] = '1'
+# Xcode 26 prebuilt uyumsuzluÄŸunu Ã§Ã¶zmek iÃ§in Expo modÃ¼llerini source'dan derle
+ENV['EXPO_USE_SOURCE'] = '1'
 
 platform :ios, '16.4'
 prepare_react_native_project!
