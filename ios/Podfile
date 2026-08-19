@@ -14,15 +14,15 @@ platform :ios, '16.4'
 prepare_react_native_project!
 use_expo_modules!
 
-target 'CoffeeLoyalty' do
-  pod 'FirebaseAuthInterop', :modular_headers => true
-  pod 'FirebaseAppCheckInterop', :modular_headers => true
-  pod 'FirebaseCore', :modular_headers => true
-  pod 'FirebaseCoreExtension', :modular_headers => true
-  pod 'FirebaseCoreInternal', :modular_headers => true
-  pod 'GoogleUtilities', :modular_headers => true
-  pod 'RecaptchaInterop', :modular_headers => true
+# Required by react-native-firebase v21+ with Firebase iOS SDK 11.x.
+# See https://rnfirebase.io/#altering-cocoapods-to-use-frameworks
+use_frameworks! :linkage => :static
+$RNFirebaseAsStaticFramework = true
 
+# react-native-maps supports use_frameworks! :linkage => :static since v1.6.0.
+$RNMapsAsStaticFramework = true
+
+target 'CoffeeLoyalty' do
   config = use_native_modules!
 
   use_react_native!(
@@ -33,23 +33,6 @@ target 'CoffeeLoyalty' do
   )
 
   post_install do |installer|
-    firebase_sources = {
-      File.join(Pod::Config.instance.installation_root, '..', 'node_modules', '@react-native-firebase', 'app', 'ios', 'RNFBApp', 'RNFBAppModule.m') => [
-        '#import <Firebase/Firebase.h>',
-        '#import <FirebaseCore/FirebaseCore.h>'
-      ],
-      File.join(Pod::Config.instance.installation_root, '..', 'node_modules', '@react-native-firebase', 'messaging', 'ios', 'RNFBMessaging', 'RNFBMessagingModule.m') => [
-        '#import <Firebase/Firebase.h>',
-        '#import <FirebaseMessaging/FirebaseMessaging.h>'
-      ]
-    }
-
-    firebase_sources.each do |source_path, replacements|
-      source = File.read(source_path)
-      source = source.sub(replacements[0], replacements[1])
-      File.write(source_path, source)
-    end
-
     react_native_post_install(
       installer,
       config[:reactNativePath],
@@ -62,12 +45,7 @@ target 'CoffeeLoyalty' do
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios_version
-        if ['RNFBApp', 'RNFBAuth', 'RNFBMessaging'].include?(target.name)
-          build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-          build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= []
-          build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'FB_SONARKIT_ENABLED=0'
-          build_config.build_settings['SWIFT_VERSION'] = '5.0'
-        end
+        build_config.build_settings['SWIFT_VERSION'] = '5.0'
       end
     end
 
