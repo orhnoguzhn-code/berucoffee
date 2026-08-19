@@ -11,6 +11,19 @@ ENV['RCT_REMOVE_LEGACY_ARCH'] = '0'
 # Expo bare workflow needs this for proper pod autolinking.
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
+# Build problematic Expo modules from source to avoid prebuilt xcframework issues
+$ExpoUseSources = [
+  'expo-modules-jsi',
+  'expo',
+  'expo-modules-core',
+  'expo-constants',
+  'expo-asset',
+  'expo-file-system',
+  'expo-font',
+  'expo-keep-awake',
+  'expo-linear-gradient',
+]
+
 ENV['RCT_NEW_ARCH_ENABLED'] = '1'
 # Expo modÃ¼llerini source'dan derle
 ENV['EXPO_USE_SOURCE'] = '1'
@@ -33,7 +46,7 @@ $RNMapsAsStaticFramework = true
 # issues with React headers under use_frameworks!. See RNFB issue #8930.
 pre_install do |installer|
   installer.pod_targets.each do |pod|
-    if pod.name.start_with?('RNFB')
+    if pod.name.start_with?('RNFB') || pod.name == 'ExpoModulesJSI'
       def pod.build_type
         Pod::BuildType.static_library
       end
