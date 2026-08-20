@@ -9,7 +9,11 @@ require Pod::Executable.execute_command('node', ['-p',
 # React-Core does not expose a Swift-importable React_RCTAppDelegate module,
 # so AppDelegate.swift's `import React_RCTAppDelegate` fails with prebuilt RNCore.
 ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
-ENV['RCT_USE_RN_DEP'] = '0'
+# Third-party deps (glog, boost, folly, fmt, ...) stay PREBUILT: their source
+# podspecs have no usable header paths under use_frameworks! (fmt.podspec sets
+# none at all). Only RNCore itself must come from source for the
+# Swift-importable React_RCTAppDelegate module.
+ENV['RCT_USE_RN_DEP'] = '1'
 
 # Required for RNFB pods with RN 0.84+ source RNCore. See RNFB issue #8930.
 ENV['RCT_REMOVE_LEGACY_ARCH'] = '0'
@@ -85,6 +89,18 @@ target 'CoffeeLoyalty' do
         # search paths below (a stale/mispointed hmap entry makes clang report
         # "file not found" even when a valid -I path exists).
         build_config.build_settings['USE_HEADERMAP'] = 'NO'
+        # Every pod target: expose its own source root on the clang command line.
+        # CocoaPods' automatic header paths are replaced by framework paths under
+        # use_frameworks!, so each pod must find its own headers directly.
+        unless target.name.start_with?('Pods-')
+          src_root = '$(PODS_TARGET_SRCROOT)'
+          flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
+          flags = "#{flags} -I\"#{src_root}\" -I\"#{src_root}/include\" -I\"#{src_root}/src\""
+          build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = flags
+          cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
+          cflags = "#{cflags} -I\"#{src_root}\" -I\"#{src_root}/include\" -I\"#{src_root}/src\""
+          build_config.build_settings['OTHER_CFLAGS'] = cflags
+        end
         if (target.name.start_with?('React-') || target.name == 'ReactCommon' ||
             target.name == 'RNReanimated' || target.name == 'RNWorklets') && !target.name.include?('prebuilt')
           hsp = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
