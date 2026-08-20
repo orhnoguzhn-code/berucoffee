@@ -75,6 +75,11 @@ workflows:
             fi
             echo "========== Header farm for failing pod =========="
             find "ios/Pods/Headers/Public/$tgt" -maxdepth 3 2>/dev/null | head -20 || true
+            echo "========== duplicate interface context =========="
+            grep -B12 -A2 "duplicate interface definition" /tmp/ios-build.log | head -80 || true
+            echo "========== FIROptions.h copies =========="
+            find ios/Pods -name 'FIROptions.h' 2>/dev/null
+            find /Users/builder/Library/Developer/Xcode/DerivedData -name 'FIROptions.h' -path '*FirebaseCore*' 2>/dev/null | head -10
             echo "========== Real source header dirs for failing pod =========="
             find "ios/Pods/$tgt" -name '*.h' 2>/dev/null | sed 's|/[^/]*$||' | sort -u | head -30 || true
             echo "========== Podfile-derived paths (pod install log) =========="
