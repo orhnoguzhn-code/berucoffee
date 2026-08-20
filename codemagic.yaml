@@ -82,6 +82,8 @@ workflows:
             find /Users/builder/Library/Developer/Xcode/DerivedData -name 'FIROptions.h' -path '*FirebaseCore*' 2>/dev/null | head -10
             echo "========== Real source header dirs for failing pod =========="
             find "ios/Pods/$tgt" -name '*.h' 2>/dev/null | sed 's|/[^/]*$||' | sort -u | head -30 || true
+            echo "========== @import lines in failing pod sources =========="
+            grep -rn "@import" "ios/Pods/$tgt" --include="*.h" --include="*.m" --include="*.mm" 2>/dev/null | head -20 || true
             echo "========== Podfile-derived paths (pod install log) =========="
             grep -E "\[berucoffee\] ${tgt} " /tmp/pod-install.log 2>/dev/null | head -4 || true
             echo "========== ERROR SUMMARY (reprinted at end) =========="

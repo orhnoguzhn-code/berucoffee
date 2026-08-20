@@ -113,6 +113,17 @@ target 'CoffeeLoyalty' do
             hsp_clean = hsp.split(' ').reject { |p| p.include?('.framework/Headers') }.join(' ')
             build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp_clean
           end
+          # @import requires modules; rewrite it to plain header imports so the
+          # module-less Firebase/Google pods still compile (FirebaseCoreInternal.h
+          # uses @import FirebaseCore; @import GoogleUtilities;).
+          pod_root = File.join(Pod::Config.instance.sandbox_root.to_s, target.name)
+          if File.directory?(pod_root)
+            Dir.glob(File.join(pod_root, '**', '*.{h,m,mm}')).each do |f|
+              content = File.read(f)
+              new_content = content.gsub(/@import\s+([A-Za-z_][A-Za-z0-9_]*)\s*;/) { "#import <#{$1}/#{$1}.h>" }
+              File.write(f, new_content) if new_content != content
+            end
+          end
         end
         # Every pod target: expose its own source root on the clang command line.
         # CocoaPods' automatic header paths are replaced by framework paths under
