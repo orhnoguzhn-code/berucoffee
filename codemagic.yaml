@@ -46,7 +46,7 @@ workflows:
             echo "resp: $resp"
             if [ -n "$resp" ]; then
               tr ' ' '\n' < "$resp" | grep -E '^-I' | head -80 || true
-              echo "========== Shadowing header dirs in resp =========="
+              echo "========== Shadowing header dirs in resp (-I) =========="
               tr ' ' '\n' < "$resp" | grep '^-I' | sed 's/^-I//' | while read -r d; do
                 d=$(echo "$d" | sed 's/"//g')
                 for h in stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h; do
@@ -56,6 +56,22 @@ workflows:
                   fi
                 done
               done
+              echo "========== Shadowing header dirs in resp (-isystem/-idirafter) =========="
+              tr ' ' '\n' < "$resp" | grep -E '^-isystem|^-idirafter' | sed -E 's/^-(isystem|idirafter)//' | while read -r d; do
+                d=$(echo "$d" | sed 's/"//g')
+                for h in stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h; do
+                  if [ -f "$d/$h" ]; then
+                    echo "ISYSTEM SHADOW DIR ($h): $d"
+                    break
+                  fi
+                done
+              done
+              echo "========== All -isystem flags =========="
+              tr ' ' '\n' < "$resp" | grep -E '^-isystem|^-idirafter' || true
+              echo "========== math.h hunt =========="
+              ls -la /usr/local/include/math.h 2>/dev/null || echo "no /usr/local/include/math.h"
+              find /Users/builder/clone/ios/Pods/ReactNativeDependencies -maxdepth 4 -name 'math.h' 2>/dev/null | head -20
+              find /Users/builder/clone/ios/Pods/ReactNativeDependencies -maxdepth 4 -name 'stdio.h' -o -maxdepth 4 -name 'stdlib.h' 2>/dev/null | head -20
             fi
             echo "========== Header farm for failing pod =========="
             find "ios/Pods/Headers/Public/$tgt" -maxdepth 3 2>/dev/null | head -20 || true
