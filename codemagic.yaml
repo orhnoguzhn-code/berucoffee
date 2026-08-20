@@ -86,8 +86,7 @@ workflows:
             grep -rn "@import" "ios/Pods/$tgt" --include="*.h" --include="*.m" --include="*.mm" 2>/dev/null | head -20 || true
             echo "========== FirebaseCoreInternal hunt =========="
             find ios/Pods -name 'FirebaseCoreInternal.h' 2>/dev/null
-            find ios/Pods/FirebaseCoreInternal -name '*.h' 2>/dev/null | head -20
-            ls -la ios/Pods/FirebaseCoreInternal 2>/dev/null | head -10
+            find ios/Pods/FirebaseCoreInternal -maxdepth 5 2>/dev/null | head -40
             echo "========== Farm root contents =========="
             ls -la ios/Pods/Headers/Public/ 2>/dev/null | head -40
             ls -la ios/Pods/Headers/Public/FirebaseCoreInternal 2>/dev/null | head -20

@@ -128,17 +128,28 @@ target 'CoffeeLoyalty' do
           end
           # Prefixed includes like <FirebaseCoreInternal/FirebaseCoreInternal.h>
           # need a CocoaPods-style header farm, which use_frameworks! does not
-          # create. Build it ourselves with SYMLINKS (shared inode -> no
-          # duplicate-interface risk) and expose the farm root on the search
-          # path so <PodName/File.h> resolves to Public/<PodName>/File.h.
+          # create. Collect .h files from ALL Firebase/Google pods (headers
+          # often live in a dependency's dir, e.g. FirebaseCoreInternal.h in
+          # FirebaseCore/Extension) and mirror them FLAT as symlinks under
+          # EVERY Firebase/Google farm dir (shared inode -> no duplicate
+          # interfaces), then expose the farm root on the search path so
+          # <PodName/File.h> resolves to Public/<PodName>/File.h.
           if File.directory?(pod_root)
+            fb_pods = pod_target_map.values.select { |p| p.name.start_with?('Firebase', 'Google', 'RNFB', 'Interop') }
             farm_root = File.join(Pod::Config.instance.sandbox_root.to_s, 'Headers', 'Public')
             FileUtils.mkdir_p(farm_root)
-            farm_dir = File.join(farm_root, target.name)
-            FileUtils.mkdir_p(farm_dir)
-            Dir.glob(File.join(pod_root, '**', '*.h')).each do |f|
-              link = File.join(farm_dir, File.basename(f))
-              File.symlink(f, link) unless File.exist?(link) || File.symlink?(link)
+            hdrs = []
+            fb_pods.each do |ptc|
+              root = File.join(Pod::Config.instance.sandbox_root.to_s, ptc.name)
+              hdrs += Dir.glob(File.join(root, '**', '*.h')) if File.directory?(root)
+            end
+            fb_pods.each do |ptd|
+              farm_dir = File.join(farm_root, ptd.name)
+              FileUtils.mkdir_p(farm_dir)
+              hdrs.each do |f|
+                link = File.join(farm_dir, File.basename(f))
+                File.symlink(f, link) unless File.exist?(link) || File.symlink?(link)
+              end
             end
             cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
             build_config.build_settings['OTHER_CFLAGS'] = "#{cflags} -I\"$(PODS_ROOT)/Headers/Public\""
