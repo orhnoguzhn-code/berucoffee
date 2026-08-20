@@ -72,17 +72,20 @@ target 'CoffeeLoyalty' do
         # RN 0.86 source build: React Native pods lose most header search paths
         # under use_frameworks! (React/DevSupport was dropped from React-Core's
         # Default subspec and ReactCommon/third-party paths are not carried over).
-        # Restore the full set needed to compile RN C++/ObjC sources from source.
-        if (target.name.start_with?('React-') || target.name == 'ReactCommon') && !target.name.include?('prebuilt')
+        # Anchor to Pods/React-Core (a symlink to node_modules/react-native) so
+        # the paths also work for the ReactCommon sub-pods (React-rendererdebug,
+        # React-debug, ...) whose PODS_TARGET_SRCROOT points at their subdirectory.
+        if (target.name.start_with?('React-') || target.name == 'ReactCommon' ||
+            target.name == 'RNReanimated' || target.name == 'RNWorklets') && !target.name.include?('prebuilt')
           hsp = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
           extra_paths = [
-            "\"$(PODS_TARGET_SRCROOT)/React/DevSupport\"",
-            "\"$(PODS_TARGET_SRCROOT)/React/Inspector\"",
-            "\"$(PODS_TARGET_SRCROOT)/React\"",
-            "\"$(PODS_TARGET_SRCROOT)/ReactCommon\"",
-            "\"$(PODS_TARGET_SRCROOT)/ReactCommon/react/nativemodule/core\"",
-            "\"$(PODS_TARGET_SRCROOT)/ReactCommon/callinvoker\"",
-            "\"$(PODS_TARGET_SRCROOT)/ReactCommon/runtime\"",
+            "\"$(PODS_ROOT)/React-Core/React/DevSupport\"",
+            "\"$(PODS_ROOT)/React-Core/React/Inspector\"",
+            "\"$(PODS_ROOT)/React-Core/React\"",
+            "\"$(PODS_ROOT)/React-Core/ReactCommon\"",
+            "\"$(PODS_ROOT)/React-Core/ReactCommon/react/nativemodule/core\"",
+            "\"$(PODS_ROOT)/React-Core/ReactCommon/callinvoker\"",
+            "\"$(PODS_ROOT)/React-Core/ReactCommon/runtime\"",
             "\"$(PODS_ROOT)/glog\"",
             "\"$(PODS_ROOT)/boost\"",
             "\"$(PODS_ROOT)/DoubleConversion\"",
