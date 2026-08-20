@@ -40,7 +40,7 @@
     "react-native-svg": "^15.2.0",
     "react-native-worklets": "^0.10.4",
     "tailwindcss": "^3.4.19"
-  }, "expo": { "autolinking": { "ios": { "exclude": ["expo-modules-jsi"] } } },
+  },
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@babel/preset-env": "^7.25.3",
