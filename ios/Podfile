@@ -106,40 +106,40 @@ target 'CoffeeLoyalty' do
           src_root = '$(PODS_TARGET_SRCROOT)'
           paths = " -I\"#{src_root}\""
           if pt
-            specs = pt.respond_to?(:specs) && pt.specs.any? ? pt.specs : [pt.podspec]
-            specs.compact.each do |sp|
-              # header_mappings_dir is where the pod keeps its headers relative
-              # to its source root (e.g. PromisesObjC -> Sources/FBLPromises/include).
-              if sp.respond_to?(:header_mappings_dir)
-                hmd = sp.header_mappings_dir
-                paths = "#{paths} -I\"#{src_root}/#{hmd}\"" if hmd && !hmd.to_s.empty?
-              end
-              # Real header dirs: walk the pod's source root in the sandbox
-              # (Pods/<target name>) for all headers and add every containing
-              # dir. Spec attribute readers (public_header_files,
-              # defined_in_file) are unreliable in post_install for trunk JSON
-              # specs, and file_accessor is absent on this CocoaPods version.
-              pod_root = File.join(Pod::Config.instance.sandbox_root.to_s, target.name)
-              if File.directory?(pod_root)
-                Dir.glob(File.join(pod_root, '**', '*.h')).each do |f|
-                  d = File.dirname(f)
-                  paths = "#{paths} -I\"#{d}\"" unless paths.include?("-I\"#{d}\"")
+            sp = pt.respond_to?(:podspec) ? pt.podspec : nil
+            # header_mappings_dir is where the pod keeps its headers relative
+            # to its source root (covers prefixed includes like
+            # <FirebaseMessaging/FirebaseMessaging.h>).
+            if sp && sp.respond_to?(:header_mappings_dir)
+              hmd = sp.header_mappings_dir
+              paths = "#{paths} -I\"#{src_root}/#{hmd}\"" if hmd && !hmd.to_s.empty?
+            end
+            # Walk this pod AND all its transitive dependencies for real header
+            # dirs: add the dir of every .h file plus its parent (parents cover
+            # prefixed includes like <FirebaseCore/FirebaseCore.h>). Spec
+            # readers and file_accessor are unreliable in post_install, so the
+            # on-disk layout is the source of truth.
+            hdr_targets = [pt]
+            hdr_targets += pt.recursive_dependent_targets if pt.respond_to?(:recursive_dependent_targets)
+            hdr_targets.each do |ptc|
+              pod_root = File.join(Pod::Config.instance.sandbox_root.to_s, ptc.name)
+              next unless File.directory?(pod_root)
+              Dir.glob(File.join(pod_root, '**', '*.h')).each do |f|
+                d = File.dirname(f)
+                next if paths.include?("-I\"#{d}\"")
+                paths = "#{paths} -I\"#{d}\""
+                parent = File.dirname(d)
+                unless paths.include?("-I\"#{parent}\"")
+                  paths = "#{paths} -I\"#{parent}\""
                 end
               end
-              # Symlink farm paths as a fallback for pods that do create one.
-              if sp.respond_to?(:header_dir)
-                hd = sp.header_dir
-                hd = nil if hd == '.'
-                farm_sub = hd && !hd.to_s.empty? ? "#{target.name}/#{hd}" : target.name
-                paths = "#{paths} -I\"$(PODS_ROOT)/Headers/Public/#{farm_sub}\" -I\"$(PODS_ROOT)/Headers/Private/#{farm_sub}\""
-              end
             end
-            # file_accessor dirs (if available in this CocoaPods version).
-            if pt.respond_to?(:file_accessor) && pt.file_accessor
-              hdrs = []
-              hdrs += pt.file_accessor.public_headers.map(&:dirname) if pt.file_accessor.respond_to?(:public_headers)
-              hdrs += pt.file_accessor.private_headers.map(&:dirname) if pt.file_accessor.respond_to?(:private_headers)
-              hdrs.uniq.each { |d| paths = "#{paths} -I\"#{d}\"" }
+            # Symlink farm paths as a fallback for pods that do create one.
+            if sp && sp.respond_to?(:header_dir)
+              hd = sp.header_dir
+              hd = nil if hd == '.'
+              farm_sub = hd && !hd.to_s.empty? ? "#{target.name}/#{hd}" : target.name
+              paths = "#{paths} -I\"$(PODS_ROOT)/Headers/Public/#{farm_sub}\" -I\"$(PODS_ROOT)/Headers/Private/#{farm_sub}\""
             end
           end
           # Debug: show what header dirs we derived for the currently failing set

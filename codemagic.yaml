@@ -33,8 +33,11 @@ workflows:
           build_status=${PIPESTATUS[0]}
           if [[ "$build_status" -ne 0 ]]; then
             echo "========== Xcode compiler errors =========="
-            grep -E "(^| )error:|fatal error:" /tmp/ios-build.log | head -20 || true
-            tgt=$(grep -E "(^| )error:" /tmp/ios-build.log | grep -oE "in target '[^']+'" | head -1 | sed "s/in target '//;s/'//")
+            grep -E "(^| )error:|fatal error:" /tmp/ios-build.log | head -30 || true
+            tgt=$(awk '/build commands failed:/{f=1} f' /tmp/ios-build.log | grep -oE "in target '[^']+'" | head -1 | sed "s/in target '//;s/'//")
+            if [ -z "$tgt" ]; then
+              tgt=$(grep -E "(^| )error:|fatal error:" /tmp/ios-build.log | grep -oE "in target '[^']+'" | head -1 | sed "s/in target '//;s/'//")
+            fi
             echo "failing target: $tgt"
             echo "========== Failed compile command (search paths) =========="
             grep -E "\.resp|common-args" /tmp/ios-build.log | grep -e "-c /" | tail -3 || true
@@ -42,14 +45,14 @@ workflows:
             resp=$(grep -oE "@[^ ]*${tgt}\.build/[^ ]*common-args\.resp" /tmp/ios-build.log | head -1 | sed 's/^@//')
             echo "resp: $resp"
             if [ -n "$resp" ]; then
-              tr ' ' '\n' < "$resp" | grep -E '^-I' | head -60 || true
+              tr ' ' '\n' < "$resp" | grep -E '^-I' | head -80 || true
             fi
             echo "========== Header farm for failing pod =========="
             find "ios/Pods/Headers/Public/$tgt" -maxdepth 3 2>/dev/null | head -20 || true
             echo "========== Real source header dirs for failing pod =========="
             find "ios/Pods/$tgt" -name '*.h' 2>/dev/null | sed 's|/[^/]*$||' | sort -u | head -30 || true
             echo "========== Podfile-derived paths (pod install log) =========="
-            grep "berucoffee.*$tgt" /tmp/pod-install.log 2>/dev/null | head -30 || true
+            grep -E "\[berucoffee\] (PromisesObjC|nanopb|FirebaseCore|FirebaseMessaging|GoogleToolboxForMac|hermes-engine|${tgt}) " /tmp/pod-install.log 2>/dev/null | head -40 || true
           fi
           exit "$build_status"
     artifacts:
