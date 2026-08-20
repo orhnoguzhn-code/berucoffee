@@ -74,17 +74,24 @@ target 'CoffeeLoyalty' do
 
     minimum_ios_version = '16.4'
 
-    # Remove problematic ExpoModulesJSI xcframework build phase
+    # Expo SDK 57 can add a CP-User phase that builds ExpoModulesJSI as an xcframework.
+    # That phase fails on Codemagic's generic iOS Release build (Xcode 16).
+    # Match both the phase label and script body because CocoaPods can name the
+    # phase differently while keeping the same generated script.
     installer.pods_project.targets.each do |target|
-      if target.name == 'ExpoModulesJSI'
-        target.build_phases.each do |phase|
-          if phase.is_a?(Xcodeproj::Project::Object::PBXShellScriptBuildPhase)
-            if phase.shell_script.include?('Build ExpoModulesJSI xcframework') || 
-               phase.shell_script.include?('xcframework')
-              puts "🗑️  Removing problematic build phase from #{target.name}: #{phase.display_name}"
-              target.build_phases.delete(phase)
-            end
-          end
+      next unless target.name == 'ExpoModulesJSI'
+
+      target.build_phases.to_a.each do |phase|
+        next unless phase.is_a?(Xcodeproj::Project::Object::PBXShellScriptBuildPhase)
+
+        phase_name = [phase.name, phase.display_name].compact.join(' ')
+        phase_script = phase.shell_script.to_s
+        is_xcframework_phase = phase_name.match?(/ExpoModulesJSI.*xcframework/i) ||
+          phase_script.match?(/ExpoModulesJSI.*xcframework|build.*xcframework/i)
+
+        if is_xcframework_phase
+          puts "🗑️  Removing ExpoModulesJSI xcframework phase: #{phase_name}"
+          target.build_phases.delete(phase)
         end
       end
     end
