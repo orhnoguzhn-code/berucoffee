@@ -75,33 +75,47 @@ target 'CoffeeLoyalty' do
         # Compute ABSOLUTE paths (resolved at pod-install time on the build machine)
         # because $(PODS_ROOT)/$(PODS_TARGET_SRCROOT) expansion is unreliable for
         # pod targets on Xcode 26 (see react-native-reanimated#9035, expo#44515).
-        rn_abs = File.expand_path("node_modules/react-native", Pod::Config.instance.installation_root.to_s)
+        # REACT_NATIVE_PATH is set by react_native_pods.rb to the absolute RN
+        # root at Podfile-eval time; fall back to a computed path if absent.
+        rn_abs = ENV['REACT_NATIVE_PATH'] || File.expand_path(File.join("..", "node_modules", "react-native"), Pod::Config.instance.installation_root.to_s)
         rn_abs = File.realpath(rn_abs) if File.exist?(rn_abs)
         sandbox_abs = Pod::Config.instance.sandbox_root.to_s
+        Pod::UI.puts("[berucoffee] RN abs path: #{rn_abs}")
+        # Disable header maps so CocoaPods' .hmap files cannot shadow the -I
+        # search paths below (a stale/mispointed hmap entry makes clang report
+        # "file not found" even when a valid -I path exists).
+        build_config.build_settings['USE_HEADERMAP'] = 'NO'
         if (target.name.start_with?('React-') || target.name == 'ReactCommon' ||
             target.name == 'RNReanimated' || target.name == 'RNWorklets') && !target.name.include?('prebuilt')
           hsp = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
-          extra_paths = [
-            "\"#{rn_abs}/React/DevSupport\"",
-            "\"#{rn_abs}/React/Inspector\"",
-            "\"#{rn_abs}/React\"",
-            "\"#{rn_abs}/ReactCommon\"",
-            "\"#{rn_abs}/ReactCommon/react/nativemodule/core\"",
-            "\"#{rn_abs}/ReactCommon/callinvoker\"",
-            "\"#{rn_abs}/ReactCommon/runtime\"",
-            "\"#{rn_abs}/ReactCommon/jsitooling\"",
-            "\"$(PODS_TARGET_SRCROOT)/../../..\"",
-            "\"#{File.join(sandbox_abs, 'glog')}\"",
-            "\"#{File.join(sandbox_abs, 'boost')}\"",
-            "\"#{File.join(sandbox_abs, 'DoubleConversion')}\"",
-            "\"#{File.join(sandbox_abs, 'fast_float', 'include')}\"",
-            "\"#{File.join(sandbox_abs, 'fmt', 'include')}\"",
-            "\"#{File.join(sandbox_abs, 'SocketRocket')}\"",
-            "\"#{File.join(sandbox_abs, 'RCT-Folly')}\"",
-            "\"#{File.join(sandbox_abs, 'Headers', 'Public', 'ReactCommon')}\"",
-          ].join(' ')
-          hsp = "#{extra_paths} #{hsp}"
+          abs_paths = [
+            "#{rn_abs}/React/DevSupport",
+            "#{rn_abs}/React/Inspector",
+            "#{rn_abs}/React",
+            "#{rn_abs}/ReactCommon",
+            "#{rn_abs}/ReactCommon/react/nativemodule/core",
+            "#{rn_abs}/ReactCommon/callinvoker",
+            "#{rn_abs}/ReactCommon/runtime",
+            "#{rn_abs}/ReactCommon/jsitooling",
+            "$(PODS_TARGET_SRCROOT)/../../..",
+            File.join(sandbox_abs, 'glog'),
+            File.join(sandbox_abs, 'boost'),
+            File.join(sandbox_abs, 'DoubleConversion'),
+            File.join(sandbox_abs, 'fast_float', 'include'),
+            File.join(sandbox_abs, 'fmt', 'include'),
+            File.join(sandbox_abs, 'SocketRocket'),
+            File.join(sandbox_abs, 'RCT-Folly'),
+            File.join(sandbox_abs, 'Headers', 'Public', 'ReactCommon'),
+          ]
+          quoted = abs_paths.map { |p| "\"#{p}\"" }.join(' ')
+          hsp = "#{quoted} #{hsp}"
           build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp
+          # Belt and suspenders: put the same paths directly on the clang
+          # command line via OTHER_CPLUSPLUSFLAGS so no build-setting override
+          # can strip them before the compiler runs.
+          flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
+          flags = "#{flags} #{abs_paths.map { |p| "-I\"#{p}\"" }.join(' ')}"
+          build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = flags
         end
 
         if target.name.start_with?('RNFB')

@@ -34,7 +34,7 @@ workflows:
             echo "========== Xcode compiler errors =========="
             grep -E "(^| )error:|fatal error:" /tmp/ios-build.log || true
             echo "========== Failed compile command (search paths) =========="
-            grep -E "DebugStringConvertibleItem.o|CompileC" /tmp/ios-build.log | tail -5 || true
+            grep -E "ReactNativeFeatureFlags\.cpp|DebugStringConvertibleItem\.cpp" /tmp/ios-build.log | grep -E "\-I|\-c " | tail -3 || true
           fi
           exit "$build_status"
     artifacts:
