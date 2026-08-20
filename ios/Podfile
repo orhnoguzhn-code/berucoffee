@@ -98,6 +98,22 @@ target 'CoffeeLoyalty' do
         # search paths below (a stale/mispointed hmap entry makes clang report
         # "file not found" even when a valid -I path exists).
         build_config.build_settings['USE_HEADERMAP'] = 'NO'
+        # Firebase/Google pods ship guard-less public headers (FIROptions.h
+        # etc.). Under use_frameworks! the same file is loaded twice - once from
+        # the built framework's Headers copy (via module/umbrella import) and
+        # once from the pod source dir (via the -I paths injected below) - which
+        # yields "duplicate interface definition". Fix: disable modules so
+        # #import resolves headers (not framework modules) and drop the
+        # framework Headers copies from HEADER_SEARCH_PATHS so every include
+        # resolves to the single source copy.
+        if target.name.start_with?('Firebase', 'Google', 'RNFB')
+          build_config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
+          hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
+          if hsp
+            hsp_clean = hsp.split(' ').reject { |p| p.include?('.framework/Headers') }.join(' ')
+            build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp_clean
+          end
+        end
         # Every pod target: expose its own source root on the clang command line.
         # CocoaPods' automatic header paths are replaced by framework paths under
         # use_frameworks!, so each pod must find its own headers directly.
