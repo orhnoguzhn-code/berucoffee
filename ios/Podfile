@@ -139,7 +139,24 @@ target 'CoffeeLoyalty' do
               new_content = content.gsub(/@import\s+([A-Za-z_][A-Za-z0-9_]*)\s*;/) do
                 mod = $1
                 mod_root = File.join(Pod::Config.instance.sandbox_root.to_s, mod)
-                hdr_names = File.directory?(mod_root) ? Dir.glob(File.join(mod_root, '**', '*.h')).map { |h| File.basename(h) }.uniq.sort : []
+                hdr_names = []
+                if File.directory?(mod_root)
+                  Dir.glob(File.join(mod_root, '**', '*.h')).each do |h|
+                    hc = (File.read(h) rescue '')
+                    # Skip "Internal"-style headers that use their own
+                    # pod-root-relative quoted includes, e.g.
+                    # #import "FirebaseCore/Sources/Public/FirebaseCore/X.h".
+                    # Those assume compilation from the pod's real source
+                    # tree and break ("file not found") once pulled in flat
+                    # from the Headers/Public farm, so don't force-import
+                    # them; the classes we actually need visible (e.g.
+                    # FIRHeartbeatsPayload, FIRHeartbeatController) don't use
+                    # this style of include.
+                    next if hc =~ /#import\s+"[^"]*\/[^"]*"/
+                    hdr_names << File.basename(h)
+                  end
+                  hdr_names = hdr_names.uniq.sort
+                end
                 if hdr_names.empty?
                   "#import <#{mod}/#{mod}.h>"
                 else
