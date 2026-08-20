@@ -55,8 +55,8 @@ workflows:
           build_status=${PIPESTATUS[0]}
           if [[ "$build_status" -ne 0 ]]; then
             echo "========== Build FAILED =========="
-            echo "Looking for package resolution errors..."
-            grep -E "Could not resolve package|PhaseScriptExecution.*ExpoModulesJSI" /tmp/ios-build.log | head -10 || true
+            echo "========== Relevant compiler errors =========="
+            grep -E "error:|fatal error:|SwiftCompile|CompileSwift|PhaseScriptExecution|Could not resolve package" /tmp/ios-build.log | tail -80 || true
           else
             echo "========== Build SUCCEEDED at $(date) =========="
           fi
