@@ -11,24 +11,7 @@ ENV['RCT_REMOVE_LEGACY_ARCH'] = '0'
 # Expo bare workflow needs this for proper pod autolinking.
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
-# Build problematic Expo modules from source to avoid prebuilt xcframework issues
-$ExpoUseSources = [
-  'expo-modules-jsi',
-  'expo',
-  'expo-modules-core',
-  'expo-constants',
-  'expo-asset',
-  'expo-file-system',
-  'expo-font',
-  'expo-keep-awake',
-  'expo-linear-gradient',
-]
-
 ENV['RCT_NEW_ARCH_ENABLED'] = '1'
-# Expo modüllerini source'dan derle
-ENV['EXPO_USE_SOURCE'] = '1'
-# Swift explicit modules'ı devre dışı bırak
-ENV['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
 
 platform :ios, '16.4'
 prepare_react_native_project!
@@ -36,8 +19,8 @@ use_expo_modules!
 
 # Required by react-native-firebase v21+ with Firebase iOS SDK 11.x.
 # See https://rnfirebase.io/#altering-cocoapods-to-use-frameworks
-use_frameworks! :linkage => :dynamic
-# Dynamic frameworks provide FirebaseAuth's Swift dependencies as named modules.
+use_frameworks! :linkage => :static
+$RNFirebaseAsStaticFramework = true
 
 # react-native-maps supports use_frameworks! :linkage => :static since v1.6.0.
 $RNMapsAsStaticFramework = true
@@ -46,7 +29,7 @@ $RNMapsAsStaticFramework = true
 # issues with React headers under use_frameworks!. See RNFB issue #8930.
 pre_install do |installer|
   installer.pod_targets.each do |pod|
-    if pod.name.start_with?('RNFB') || pod.name == 'ExpoModulesJSI'
+    if pod.name.start_with?('RNFB')
       def pod.build_type
         Pod::BuildType.static_library
       end
@@ -74,43 +57,11 @@ target 'CoffeeLoyalty' do
 
     minimum_ios_version = '16.4'
 
-    # Expo SDK 57 can add a CP-User phase that builds ExpoModulesJSI as an xcframework.
-    # That phase fails on Codemagic's generic iOS Release build (Xcode 16).
-    # Match both the phase label and script body because CocoaPods can name the
-    # phase differently while keeping the same generated script.
-    installer.pods_project.targets.each do |target|
-      next unless target.name == 'ExpoModulesJSI'
-
-      target.build_phases.to_a.each do |phase|
-        next unless phase.is_a?(Xcodeproj::Project::Object::PBXShellScriptBuildPhase)
-
-        phase_name = [phase.name, phase.display_name].compact.join(' ')
-        phase_script = phase.shell_script.to_s
-        is_xcframework_phase = phase_name.match?(/ExpoModulesJSI.*xcframework/i) ||
-          phase_script.match?(/ExpoModulesJSI.*xcframework|build.*xcframework/i)
-
-        if is_xcframework_phase
-          puts "🗑️  Removing ExpoModulesJSI xcframework phase: #{phase_name}"
-          target.build_phases.delete(phase)
-        end
-      end
-    end
-
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios_version
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-        # Swift modularization uyumsuzluğu çöz
-        build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
-        build_config.build_settings['ENABLE_MODULAR_HEADERS'] = 'NO'
-        
-        # Release konfigürasyonu için Xcode 16 optimizasyonları
-        if build_config.name == 'Release'
-          build_config.build_settings['SWIFT_COMPILATION_MODE'] = 'wholemodule'
-          build_config.build_settings['GCC_OPTIMIZATION_LEVEL'] = 's'
-        end
-        
         if target.name.start_with?('RNFB')
           defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
           defs = [defs] unless defs.is_a?(Array)
