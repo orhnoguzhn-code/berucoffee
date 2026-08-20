@@ -123,6 +123,9 @@ target 'CoffeeLoyalty' do
         if target.name.start_with?('GoogleUtilities')
           build_config.build_settings['DEFINES_MODULE'] = 'YES'
           build_config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+          # FirebaseAuth imports this exact Clang/Swift module name.
+          build_config.build_settings['PRODUCT_MODULE_NAME'] = 'GoogleUtilities_AppDelegateSwizzler'
+          build_config.build_settings['SWIFT_MODULE_NAME'] = 'GoogleUtilities_AppDelegateSwizzler'
         end
 
         if target.name.start_with?('RNFB')
