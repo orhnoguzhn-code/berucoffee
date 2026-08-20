@@ -114,19 +114,16 @@ target 'CoffeeLoyalty' do
                 hmd = sp.header_mappings_dir
                 paths = "#{paths} -I\"#{src_root}/#{hmd}\"" if hmd && !hmd.to_s.empty?
               end
-              # Real header dirs derived from the podspec file globs on disk
-              # (reliable even when file_accessor is empty in post_install).
-              if sp.respond_to?(:defined_in_file) && sp.defined_in_file
-                root = File.dirname(File.expand_path(sp.defined_in_file.to_s))
-                pats = []
-                pats += Array(sp.public_header_files) if sp.respond_to?(:public_header_files)
-                pats += Array(sp.private_header_files) if sp.respond_to?(:private_header_files)
-                pats += Array(sp.source_files) if sp.respond_to?(:source_files)
-                pats.each do |p|
-                  next unless p.is_a?(String)
-                  Dir.glob(File.join(root, p)).each do |f|
-                    paths = "#{paths} -I\"#{File.dirname(f)}\"" if File.extname(f) == '.h'
-                  end
+              # Real header dirs: walk the pod's source root in the sandbox
+              # (Pods/<target name>) for all headers and add every containing
+              # dir. Spec attribute readers (public_header_files,
+              # defined_in_file) are unreliable in post_install for trunk JSON
+              # specs, and file_accessor is absent on this CocoaPods version.
+              pod_root = File.join(Pod::Config.instance.sandbox_root.to_s, target.name)
+              if File.directory?(pod_root)
+                Dir.glob(File.join(pod_root, '**', '*.h')).each do |f|
+                  d = File.dirname(f)
+                  paths = "#{paths} -I\"#{d}\"" unless paths.include?("-I\"#{d}\"")
                 end
               end
               # Symlink farm paths as a fallback for pods that do create one.
@@ -148,13 +145,9 @@ target 'CoffeeLoyalty' do
           # Debug: show what header dirs we derived for the currently failing set
           # (printed into the pod install log on Codemagic).
           if %w[PromisesObjC nanopb FirebaseCore FirebaseMessaging GoogleToolboxForMac hermes-engine].include?(target.name)
-            specs = pt && pt.respond_to?(:specs) && pt.specs.any? ? pt.specs : []
-            fa = pt && pt.respond_to?(:file_accessor) ? pt.file_accessor : nil
-            ph = fa && fa.respond_to?(:public_headers) ? fa.public_headers : nil
-            Pod::UI.puts("[berucoffee] #{target.name} specs=#{specs.length} file_accessor=#{fa ? 'yes' : 'no'} public_headers=#{ph ? ph.map(&:to_s).inspect : 'none'}")
-            specs.each do |s|
-              Pod::UI.puts("[berucoffee] #{target.name} spec def=#{s.respond_to?(:defined_in_file) ? s.defined_in_file : 'nil'} pub_hdr=#{s.respond_to?(:public_header_files) ? s.public_header_files.inspect : 'nil'}")
-            end
+            pod_root = File.join(Pod::Config.instance.sandbox_root.to_s, target.name)
+            h_count = File.directory?(pod_root) ? Dir.glob(File.join(pod_root, '**', '*.h')).length : -1
+            Pod::UI.puts("[berucoffee] #{target.name} pod_root=#{pod_root} exists=#{File.directory?(pod_root)} headers=#{h_count}")
             Pod::UI.puts("[berucoffee] #{target.name} final paths: #{paths}")
           end
           flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
