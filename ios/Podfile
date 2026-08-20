@@ -112,7 +112,18 @@ target 'CoffeeLoyalty' do
           build_config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
           hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
           if hsp
-            hsp_clean = hsp.split(' ').reject { |p| p.include?('.framework/Headers') }.join(' ')
+            # Keep FirebaseCoreInternal's own framework Headers path. It's a
+            # Swift pod (HeartbeatController, HeartbeatsPayload, etc. are
+            # implemented in Swift) and its Objective-C-visible interface
+            # (FirebaseCoreInternal-Swift.h) is a compiler-GENERATED header
+            # that only ever exists inside the built framework's Headers
+            # folder - there is no source .h file for it anywhere in the pod,
+            # so it cannot be reached via the source-tree -I paths this
+            # Podfile injects elsewhere. Stripping this one path (like every
+            # other Firebase*/Google*/RNFB* framework Headers path, to avoid
+            # "duplicate interface definition") would make FIRHeartbeatsPayload
+            # / FIRHeartbeatController permanently unreachable.
+            hsp_clean = hsp.split(' ').reject { |p| p.include?('.framework/Headers') && !p.include?('FirebaseCoreInternal.framework') }.join(' ')
             build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp_clean
           end
           # @import requires modules; rewrite it to plain header imports so the
@@ -131,7 +142,10 @@ target 'CoffeeLoyalty' do
           # "no visible @interface ... declares the selector" in FIRHeartbeatLogger.m.
           # Fix: expand "@import X;" into #import lines for EVERY public header
           # that ships inside pod X, not just X.h, so nothing is left as a bare
-          # forward declaration.
+          # forward declaration. For pods implemented (partly) in Swift, ALSO
+          # import the compiler-generated <X/X-Swift.h> - that's the only place
+          # classes like FIRHeartbeatsPayload/FIRHeartbeatController actually
+          # get a real @interface instead of a forward declaration.
           pod_root = File.join(Pod::Config.instance.sandbox_root.to_s, target.name)
           if File.directory?(pod_root)
             Dir.glob(File.join(pod_root, '**', '*.{h,m,mm}')).each do |f|
@@ -140,7 +154,9 @@ target 'CoffeeLoyalty' do
                 mod = $1
                 mod_root = File.join(Pod::Config.instance.sandbox_root.to_s, mod)
                 hdr_names = []
+                has_swift = false
                 if File.directory?(mod_root)
+                  has_swift = !Dir.glob(File.join(mod_root, '**', '*.swift')).empty?
                   Dir.glob(File.join(mod_root, '**', '*.h')).each do |h|
                     hc = (File.read(h) rescue '')
                     # Skip "Internal"-style headers that use their own
@@ -149,19 +165,16 @@ target 'CoffeeLoyalty' do
                     # Those assume compilation from the pod's real source
                     # tree and break ("file not found") once pulled in flat
                     # from the Headers/Public farm, so don't force-import
-                    # them; the classes we actually need visible (e.g.
-                    # FIRHeartbeatsPayload, FIRHeartbeatController) don't use
-                    # this style of include.
+                    # them.
                     next if hc =~ /#import\s+"[^"]*\/[^"]*"/
                     hdr_names << File.basename(h)
                   end
                   hdr_names = hdr_names.uniq.sort
                 end
-                if hdr_names.empty?
-                  "#import <#{mod}/#{mod}.h>"
-                else
-                  hdr_names.map { |h| "#import <#{mod}/#{h}>" }.join("\n")
-                end
+                lines = hdr_names.map { |h| "#import <#{mod}/#{h}>" }
+                lines << "#import <#{mod}/#{mod}-Swift.h>" if has_swift
+                lines << "#import <#{mod}/#{mod}.h>" if lines.empty?
+                lines.join("\n")
               end
               File.write(f, new_content) if new_content != content
             end
