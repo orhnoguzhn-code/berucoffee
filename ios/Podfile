@@ -5,7 +5,13 @@ require Pod::Executable.execute_command('node', ['-p',
     {paths: [process.argv[1]]},
   )', __dir__]).strip
 
-# Required for RNFB pods on RN 0.84+ prebuilt RNCore. See RNFB issue #8930.
+# Build React Native core and dependencies from source. RN 0.86's prebuilt
+# React-Core does not expose a Swift-importable React_RCTAppDelegate module,
+# so AppDelegate.swift's `import React_RCTAppDelegate` fails with prebuilt RNCore.
+ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
+ENV['RCT_USE_RN_DEP'] = '0'
+
+# Required for RNFB pods with RN 0.84+ source RNCore. See RNFB issue #8930.
 ENV['RCT_REMOVE_LEGACY_ARCH'] = '0'
 
 # Expo bare workflow needs this for proper pod autolinking.
@@ -62,6 +68,16 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = minimum_ios_version
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+
+        # RN 0.86 regression: React-Core's Default subspec no longer includes
+        # React/DevSupport, but React/Base/RCTBridge.mm still imports its
+        # headers. Restore the search paths when building RNCore from source.
+        if target.name.start_with?('React-Core') && !target.name.include?('prebuilt')
+          hsp = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
+          hsp = "\"$(PODS_TARGET_SRCROOT)/React/DevSupport\" \"$(PODS_TARGET_SRCROOT)/React/Inspector\" #{hsp}"
+          build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp
+        end
+
         if target.name.start_with?('RNFB')
           defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
           defs = [defs] unless defs.is_a?(Array)
