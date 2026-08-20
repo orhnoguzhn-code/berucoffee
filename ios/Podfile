@@ -67,11 +67,13 @@ target 'CoffeeLoyalty' do
 
     minimum_ios_version = '16.4'
 
-    # Map pod target name -> podspec so each target can compute its own header
-    # layout (header_mappings_dir / header_dir) instead of guessing.
-    pod_specs = {}
+    # Map pod target name -> PodTarget so each target can read its own real
+    # header layout (file_accessor, header_mappings_dir, header_dir) instead of
+    # guessing; several pods (PromisesObjC, Firebase*) have no CocoaPods header
+    # symlink farm under use_frameworks!, so only real source dirs work.
+    pod_target_map = {}
     installer.pod_targets.each do |pt|
-      pod_specs[pt.name] = pt.respond_to?(:podspec) ? pt.podspec : nil
+      pod_target_map[pt.name] = pt
     end
 
     installer.pods_project.targets.each do |target|
@@ -100,21 +102,34 @@ target 'CoffeeLoyalty' do
         # CocoaPods' automatic header paths are replaced by framework paths under
         # use_frameworks!, so each pod must find its own headers directly.
         unless target.name.start_with?('Pods-')
-          spec = pod_specs[target.name]
+          pt = pod_target_map[target.name]
           src_root = '$(PODS_TARGET_SRCROOT)'
-          # header_mappings_dir is where the pod keeps its headers relative to
-          # its source root (e.g. PromisesObjC -> Sources/FBLPromises/include).
-          hmd = spec.respond_to?(:header_mappings_dir) ? spec.header_mappings_dir : nil
-          hmd_path = hmd && !hmd.to_s.empty? ? "#{src_root}/#{hmd}" : nil
-          # header_dir is the subfolder CocoaPods uses inside the symlink farm
-          # (Pods/Headers/Public/<pod>/<header_dir>); "." means "flat in the
-          # pod folder" (PromisesObjC sets header_dir = "./").
-          hd = spec.respond_to?(:header_dir) ? spec.header_dir : nil
-          hd = nil if hd == '.'
-          farm_sub = hd && !hd.to_s.empty? ? "#{target.name}/#{hd}" : target.name
           paths = " -I\"#{src_root}\""
-          paths = "#{paths} -I\"#{hmd_path}\"" if hmd_path
-          paths = "#{paths} -I\"$(PODS_ROOT)/Headers/Public/#{farm_sub}\" -I\"$(PODS_ROOT)/Headers/Private/#{farm_sub}\""
+          if pt
+            spec = pt.respond_to?(:podspec) ? pt.podspec : nil
+            # header_mappings_dir is where the pod keeps its headers relative to
+            # its source root (e.g. PromisesObjC -> Sources/FBLPromises/include).
+            if spec && spec.respond_to?(:header_mappings_dir)
+              hmd = spec.header_mappings_dir
+              paths = "#{paths} -I\"#{src_root}/#{hmd}\"" if hmd && !hmd.to_s.empty?
+            end
+            # Real header dirs from the pod's file accessor (absolute paths on the
+            # machine where pod install ran): covers pods with deeper layouts that
+            # have no symlink farm (PromisesObjC, FirebaseCore, FirebaseMessaging).
+            if pt.respond_to?(:file_accessor) && pt.file_accessor
+              hdrs = []
+              hdrs += pt.file_accessor.public_headers.map(&:dirname) if pt.file_accessor.respond_to?(:public_headers)
+              hdrs += pt.file_accessor.private_headers.map(&:dirname) if pt.file_accessor.respond_to?(:private_headers)
+              hdrs.uniq.each { |d| paths = "#{paths} -I\"#{d}\"" }
+            end
+            # Symlink farm paths as a fallback for pods that do create one.
+            if spec && spec.respond_to?(:header_dir)
+              hd = spec.header_dir
+              hd = nil if hd == '.'
+              farm_sub = hd && !hd.to_s.empty? ? "#{target.name}/#{hd}" : target.name
+              paths = "#{paths} -I\"$(PODS_ROOT)/Headers/Public/#{farm_sub}\" -I\"$(PODS_ROOT)/Headers/Private/#{farm_sub}\""
+            end
+          end
           flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
           build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{flags}#{paths}"
           cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
