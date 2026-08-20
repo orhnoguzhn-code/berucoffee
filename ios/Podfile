@@ -31,25 +31,16 @@ ENV['EXPO_USE_SOURCE'] = '1'
 ENV['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
 
 platform :ios, '16.4'
-# FirebaseAuth's Swift sources import GoogleUtilities subspecs as modules.
-# Generate CocoaPods module maps for static pods as well as frameworks.
-use_modular_headers!
 prepare_react_native_project!
 use_expo_modules!
 
 # Required by react-native-firebase v21+ with Firebase iOS SDK 11.x.
 # See https://rnfirebase.io/#altering-cocoapods-to-use-frameworks
-use_frameworks! :linkage => :static
-$RNFirebaseAsStaticFramework = true
+use_frameworks! :linkage => :dynamic
+# Dynamic frameworks provide FirebaseAuth's Swift dependencies as named modules.
 
 # react-native-maps supports use_frameworks! :linkage => :static since v1.6.0.
 $RNMapsAsStaticFramework = true
-
-# FirebaseAuth imports GoogleUtilities_AppDelegateSwizzler as a Swift module.
-# Mark the Firebase GoogleUtilities subspecs as modular for static frameworks.
-pod 'GoogleUtilities/AppDelegateSwizzler', :modular_headers => true
-pod 'GoogleUtilities/Environment', :modular_headers => true
-pod 'GoogleUtilities/Logger', :modular_headers => true
 
 # RNFB pods must be static libraries (not frameworks) to avoid module boundary
 # issues with React headers under use_frameworks!. See RNFB issue #8930.
@@ -112,7 +103,7 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         # Swift modularization uyumsuzluğu çöz
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
-        build_config.build_settings['ENABLE_MODULAR_HEADERS'] = 'YES'
+        build_config.build_settings['ENABLE_MODULAR_HEADERS'] = 'NO'
         
         # Release konfigürasyonu için Xcode 16 optimizasyonları
         if build_config.name == 'Release'
@@ -120,14 +111,6 @@ target 'CoffeeLoyalty' do
           build_config.build_settings['GCC_OPTIMIZATION_LEVEL'] = 's'
         end
         
-        if target.name.start_with?('GoogleUtilities')
-          build_config.build_settings['DEFINES_MODULE'] = 'YES'
-          build_config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
-          # FirebaseAuth imports this exact Clang/Swift module name.
-          build_config.build_settings['PRODUCT_MODULE_NAME'] = 'GoogleUtilities_AppDelegateSwizzler'
-          build_config.build_settings['SWIFT_MODULE_NAME'] = 'GoogleUtilities_AppDelegateSwizzler'
-        end
-
         if target.name.start_with?('RNFB')
           defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
           defs = [defs] unless defs.is_a?(Array)
