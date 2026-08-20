@@ -5,6 +5,8 @@ require Pod::Executable.execute_command('node', ['-p',
     {paths: [process.argv[1]]},
   )', __dir__]).strip
 
+require 'fileutils'
+
 # Build React Native core and dependencies from source. RN 0.86's prebuilt
 # React-Core does not expose a Swift-importable React_RCTAppDelegate module,
 # so AppDelegate.swift's `import React_RCTAppDelegate` fails with prebuilt RNCore.
@@ -131,9 +133,9 @@ target 'CoffeeLoyalty' do
           # path so <PodName/File.h> resolves to Public/<PodName>/File.h.
           if File.directory?(pod_root)
             farm_root = File.join(Pod::Config.instance.sandbox_root.to_s, 'Headers', 'Public')
-            Dir.mkdir_p(farm_root)
+            FileUtils.mkdir_p(farm_root)
             farm_dir = File.join(farm_root, target.name)
-            Dir.mkdir_p(farm_dir)
+            FileUtils.mkdir_p(farm_dir)
             Dir.glob(File.join(pod_root, '**', '*.h')).each do |f|
               link = File.join(farm_dir, File.basename(f))
               File.symlink(f, link) unless File.exist?(link) || File.symlink?(link)
