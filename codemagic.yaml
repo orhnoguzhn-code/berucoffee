@@ -52,7 +52,12 @@ workflows:
             echo "========== Real source header dirs for failing pod =========="
             find "ios/Pods/$tgt" -name '*.h' 2>/dev/null | sed 's|/[^/]*$||' | sort -u | head -30 || true
             echo "========== Podfile-derived paths (pod install log) =========="
-            grep -E "\[berucoffee\] (PromisesObjC|nanopb|FirebaseCore|FirebaseMessaging|GoogleToolboxForMac|hermes-engine|${tgt}) " /tmp/pod-install.log 2>/dev/null | head -40 || true
+            grep -E "\[berucoffee\] ${tgt} " /tmp/pod-install.log 2>/dev/null | head -4 || true
+            echo "========== ERROR SUMMARY (reprinted at end) =========="
+            grep -E "(^| )error:|fatal error:" /tmp/ios-build.log | head -30 || true
+            echo "failing target: $tgt"
+            echo "first failing command:"
+            awk '/build commands failed:/{f=1} f && /\.o /{print; exit}' /tmp/ios-build.log | head -1 || true
           fi
           exit "$build_status"
     artifacts:
