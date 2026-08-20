@@ -49,9 +49,12 @@ workflows:
               echo "========== Shadowing header dirs in resp =========="
               tr ' ' '\n' < "$resp" | grep '^-I' | sed 's/^-I//' | while read -r d; do
                 d=$(echo "$d" | sed 's/"//g')
-                if [ -f "$d/stdio.h" ] || [ -f "$d/stdlib.h" ]; then
-                  echo "SHADOW DIR: $d"
-                fi
+                for h in stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h; do
+                  if [ -f "$d/$h" ]; then
+                    echo "SHADOW DIR ($h): $d"
+                    break
+                  fi
+                done
               done
             fi
             echo "========== Header farm for failing pod =========="

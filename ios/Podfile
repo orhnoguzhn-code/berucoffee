@@ -130,11 +130,12 @@ target 'CoffeeLoyalty' do
                 # Never inject a dir that shadows the C standard library:
                 # folly/portability ships lowercase stdio.h/stdlib.h shims that
                 # break libc++'s #include_next ("didn't find libc++'s <stdio.h>").
-                shadow = %w[stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h].any? { |h| File.exist?(File.join(d, h)) }
-                next if shadow
+                # Check both the leaf dir and its parent for C-stdlib headers.
+                shadow_dirs = %w[stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h]
+                next if shadow_dirs.any? { |h| File.exist?(File.join(d, h)) }
                 paths = "#{paths} -I\"#{d}\""
                 parent = File.dirname(d)
-                unless paths.include?("-I\"#{parent}\"")
+                unless paths.include?("-I\"#{parent}\"") || shadow_dirs.any? { |h| File.exist?(File.join(parent, h)) }
                   paths = "#{paths} -I\"#{parent}\""
                 end
               end
