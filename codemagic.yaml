@@ -46,6 +46,13 @@ workflows:
             echo "resp: $resp"
             if [ -n "$resp" ]; then
               tr ' ' '\n' < "$resp" | grep -E '^-I' | head -80 || true
+              echo "========== Shadowing header dirs in resp =========="
+              tr ' ' '\n' < "$resp" | grep '^-I' | sed 's/^-I//' | while read -r d; do
+                d=$(echo "$d" | sed 's/"//g')
+                if [ -f "$d/stdio.h" ] || [ -f "$d/stdlib.h" ]; then
+                  echo "SHADOW DIR: $d"
+                fi
+              done
             fi
             echo "========== Header farm for failing pod =========="
             find "ios/Pods/Headers/Public/$tgt" -maxdepth 3 2>/dev/null | head -20 || true
