@@ -25,6 +25,7 @@ workflows:
             -scheme CoffeeLoyalty \
             -configuration Release \
             -destination 'generic/platform=iOS' \
+            -verbose \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             build 2>&1 | tee /tmp/ios-build.log
@@ -32,6 +33,8 @@ workflows:
           if [[ "$build_status" -ne 0 ]]; then
             echo "========== Xcode compiler errors =========="
             grep -E "(^| )error:|fatal error:" /tmp/ios-build.log || true
+            echo "========== Failed compile command (search paths) =========="
+            grep -E "DebugStringConvertibleItem.o|CompileC" /tmp/ios-build.log | tail -5 || true
           fi
           exit "$build_status"
     artifacts:

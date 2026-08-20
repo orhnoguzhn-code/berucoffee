@@ -72,28 +72,33 @@ target 'CoffeeLoyalty' do
         # RN 0.86 source build: React Native pods lose most header search paths
         # under use_frameworks! (React/DevSupport was dropped from React-Core's
         # Default subspec and ReactCommon/third-party paths are not carried over).
-        # Anchor to Pods/React-Core (a symlink to node_modules/react-native) so
-        # the paths also work for the ReactCommon sub-pods (React-rendererdebug,
-        # React-debug, ...) whose PODS_TARGET_SRCROOT points at their subdirectory.
+        # Compute ABSOLUTE paths (resolved at pod-install time on the build machine)
+        # because $(PODS_ROOT)/$(PODS_TARGET_SRCROOT) expansion is unreliable for
+        # pod targets on Xcode 26 (see react-native-reanimated#9035, expo#44515).
+        rn_abs = File.expand_path("node_modules/react-native", Pod::Config.instance.installation_root.to_s)
+        rn_abs = File.realpath(rn_abs) if File.exist?(rn_abs)
+        sandbox_abs = Pod::Config.instance.sandbox_root.to_s
         if (target.name.start_with?('React-') || target.name == 'ReactCommon' ||
             target.name == 'RNReanimated' || target.name == 'RNWorklets') && !target.name.include?('prebuilt')
           hsp = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
           extra_paths = [
-            "\"$(PODS_ROOT)/React-Core/React/DevSupport\"",
-            "\"$(PODS_ROOT)/React-Core/React/Inspector\"",
-            "\"$(PODS_ROOT)/React-Core/React\"",
-            "\"$(PODS_ROOT)/React-Core/ReactCommon\"",
-            "\"$(PODS_ROOT)/React-Core/ReactCommon/react/nativemodule/core\"",
-            "\"$(PODS_ROOT)/React-Core/ReactCommon/callinvoker\"",
-            "\"$(PODS_ROOT)/React-Core/ReactCommon/runtime\"",
-            "\"$(PODS_ROOT)/glog\"",
-            "\"$(PODS_ROOT)/boost\"",
-            "\"$(PODS_ROOT)/DoubleConversion\"",
-            "\"$(PODS_ROOT)/fast_float/include\"",
-            "\"$(PODS_ROOT)/fmt/include\"",
-            "\"$(PODS_ROOT)/SocketRocket\"",
-            "\"$(PODS_ROOT)/RCT-Folly\"",
-            "\"$(PODS_ROOT)/Headers/Public/ReactCommon\"",
+            "\"#{rn_abs}/React/DevSupport\"",
+            "\"#{rn_abs}/React/Inspector\"",
+            "\"#{rn_abs}/React\"",
+            "\"#{rn_abs}/ReactCommon\"",
+            "\"#{rn_abs}/ReactCommon/react/nativemodule/core\"",
+            "\"#{rn_abs}/ReactCommon/callinvoker\"",
+            "\"#{rn_abs}/ReactCommon/runtime\"",
+            "\"#{rn_abs}/ReactCommon/jsitooling\"",
+            "\"$(PODS_TARGET_SRCROOT)/../../..\"",
+            "\"#{File.join(sandbox_abs, 'glog')}\"",
+            "\"#{File.join(sandbox_abs, 'boost')}\"",
+            "\"#{File.join(sandbox_abs, 'DoubleConversion')}\"",
+            "\"#{File.join(sandbox_abs, 'fast_float', 'include')}\"",
+            "\"#{File.join(sandbox_abs, 'fmt', 'include')}\"",
+            "\"#{File.join(sandbox_abs, 'SocketRocket')}\"",
+            "\"#{File.join(sandbox_abs, 'RCT-Folly')}\"",
+            "\"#{File.join(sandbox_abs, 'Headers', 'Public', 'ReactCommon')}\"",
           ].join(' ')
           hsp = "#{extra_paths} #{hsp}"
           build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp
