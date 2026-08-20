@@ -118,11 +118,34 @@ target 'CoffeeLoyalty' do
           # @import requires modules; rewrite it to plain header imports so the
           # module-less Firebase/Google pods still compile (FirebaseCoreInternal.h
           # uses @import FirebaseCore; @import GoogleUtilities;).
+          #
+          # IMPORTANT: importing only the umbrella header (<X/X.h>) is not enough.
+          # With CLANG_ENABLE_MODULES=ON, "@import X;" makes clang treat the WHOLE
+          # module's symbol table as visible - including headers the umbrella never
+          # #imports itself (e.g. FirebaseCoreInternal's FIRHeartbeatsPayload.h /
+          # FIRHeartbeatController.h, which FirebaseCoreInternal.h does not include).
+          # With modules OFF that whole-module visibility trick disappears, so a
+          # class like FIRHeartbeatsPayload ends up only forward-declared (@class)
+          # wherever the umbrella happens to reference it, causing
+          # "receiver type '...' for instance message is a forward declaration" /
+          # "no visible @interface ... declares the selector" in FIRHeartbeatLogger.m.
+          # Fix: expand "@import X;" into #import lines for EVERY public header
+          # that ships inside pod X, not just X.h, so nothing is left as a bare
+          # forward declaration.
           pod_root = File.join(Pod::Config.instance.sandbox_root.to_s, target.name)
           if File.directory?(pod_root)
             Dir.glob(File.join(pod_root, '**', '*.{h,m,mm}')).each do |f|
               content = File.read(f)
-              new_content = content.gsub(/@import\s+([A-Za-z_][A-Za-z0-9_]*)\s*;/) { "#import <#{$1}/#{$1}.h>" }
+              new_content = content.gsub(/@import\s+([A-Za-z_][A-Za-z0-9_]*)\s*;/) do
+                mod = $1
+                mod_root = File.join(Pod::Config.instance.sandbox_root.to_s, mod)
+                hdr_names = File.directory?(mod_root) ? Dir.glob(File.join(mod_root, '**', '*.h')).map { |h| File.basename(h) }.uniq.sort : []
+                if hdr_names.empty?
+                  "#import <#{mod}/#{mod}.h>"
+                else
+                  hdr_names.map { |h| "#import <#{mod}/#{h}>" }.join("\n")
+                end
+              end
               File.write(f, new_content) if new_content != content
             end
           end
