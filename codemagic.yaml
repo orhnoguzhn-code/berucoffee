@@ -32,9 +32,20 @@ workflows:
           build_status=${PIPESTATUS[0]}
           if [[ "$build_status" -ne 0 ]]; then
             echo "========== Xcode compiler errors =========="
-            grep -E "(^| )error:|fatal error:" /tmp/ios-build.log || true
+            grep -E "(^| )error:|fatal error:" /tmp/ios-build.log | head -20 || true
             echo "========== Failed compile command (search paths) =========="
-            grep -E "ReactNativeFeatureFlags\.cpp|DebugStringConvertibleItem\.cpp" /tmp/ios-build.log | grep -E "\-I|\-c " | tail -3 || true
+            grep -E "\.resp|common-args" /tmp/ios-build.log | grep -E "-c /" | tail -3 || true
+            echo "========== Response file (-I flags) =========="
+            resp=$(grep -oE "@[^ ]*common-args\.resp" /tmp/ios-build.log | head -1 | sed 's/^@//')
+            echo "resp: $resp"
+            if [ -n "$resp" ]; then
+              grep -E '^-I' "$resp" | head -60 || true
+            fi
+            echo "========== Header farm for failing pods =========="
+            for p in PromisesObjC FirebaseCore FirebaseMessaging; do
+              echo "--- $p ---"
+              find "ios/Pods/Headers/Public/$p" -maxdepth 3 2>/dev/null | head -20 || true
+            done
           fi
           exit "$build_status"
     artifacts:
