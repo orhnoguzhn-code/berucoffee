@@ -45,23 +45,10 @@ $RNMapsAsStaticFramework = true
 # RNFB pods must be static libraries (not frameworks) to avoid module boundary
 # issues with React headers under use_frameworks!. See RNFB issue #8930.
 pre_install do |installer|
-  # Force ExpoModulesJSI and other Expo modules to build from source only
   installer.pod_targets.each do |pod|
-    # Skip xcframework building for these pods
-    if pod.name == 'ExpoModulesJSI' || 
-       pod.name.start_with?('RNFB') ||
-       pod.name.start_with?('hermes-engine')
-      
-      # Remove script build phases that create xcframeworks
-      if pod.name == 'ExpoModulesJSI'
-        puts "⚠️  ExpoModulesJSI: Forcing source-only build"
-        pod.instance_variable_set(:@skip_pregen_pod, true) if pod.respond_to?(:skip_pregen_pod=)
-      end
-      
-      if pod.name.start_with?('RNFB')
-        def pod.build_type
-          Pod::BuildType.static_library
-        end
+    if pod.name.start_with?('RNFB') || pod.name == 'ExpoModulesJSI'
+      def pod.build_type
+        Pod::BuildType.static_library
       end
     end
   end
@@ -69,9 +56,6 @@ end
 
 target 'CoffeeLoyalty' do
   config = use_native_modules!
-
-  # Override ExpoModulesJSI to use local source and skip xcframework build
-  pod 'ExpoModulesJSI', :path => '../node_modules/expo-modules-jsi/ios', :inhibit_warnings => true
 
   use_react_native!(
     :path => config[:reactNativePath],
@@ -90,18 +74,16 @@ target 'CoffeeLoyalty' do
 
     minimum_ios_version = '16.4'
 
-    # Remove problematic ExpoModulesJSI xcframework build phase by rewriting the script
+    # Remove problematic ExpoModulesJSI xcframework build phase
     installer.pods_project.targets.each do |target|
       if target.name == 'ExpoModulesJSI'
         target.build_phases.each do |phase|
-          next unless phase.respond_to?(:shell_script)
-          
-          if phase.shell_script&.include?('Build ExpoModulesJSI xcframework') ||
-             phase.shell_script&.include?('xcframework') ||
-             phase.shell_script&.include?('build_xcframework')
-            puts "🗑️  Removing xcframework build phase from #{target.name}"
-            # Don't delete, just make it a no-op
-            phase.shell_script = "echo 'ExpoModulesJSI built from source - xcframework build skipped'"
+          if phase.is_a?(Xcodeproj::Project::Object::PBXShellScriptBuildPhase)
+            if phase.shell_script.include?('Build ExpoModulesJSI xcframework') || 
+               phase.shell_script.include?('xcframework')
+              puts "🗑️  Removing problematic build phase from #{target.name}: #{phase.display_name}"
+              target.build_phases.delete(phase)
+            end
           end
         end
       end
