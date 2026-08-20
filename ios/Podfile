@@ -31,6 +31,9 @@ ENV['EXPO_USE_SOURCE'] = '1'
 ENV['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
 
 platform :ios, '16.4'
+# FirebaseAuth's Swift sources import GoogleUtilities subspecs as modules.
+# Generate CocoaPods module maps for static pods as well as frameworks.
+use_modular_headers!
 prepare_react_native_project!
 use_expo_modules!
 
@@ -109,7 +112,7 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         # Swift modularization uyumsuzluğu çöz
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
-        build_config.build_settings['ENABLE_MODULAR_HEADERS'] = 'NO'
+        build_config.build_settings['ENABLE_MODULAR_HEADERS'] = 'YES'
         
         # Release konfigürasyonu için Xcode 16 optimizasyonları
         if build_config.name == 'Release'
