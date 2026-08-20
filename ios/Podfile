@@ -130,6 +130,14 @@ target 'CoffeeLoyalty' do
               paths = "#{paths} -I\"$(PODS_ROOT)/Headers/Public/#{farm_sub}\" -I\"$(PODS_ROOT)/Headers/Private/#{farm_sub}\""
             end
           end
+          # Debug: show what header dirs we derived for the currently failing set
+          # (printed into the pod install log on Codemagic).
+          if %w[PromisesObjC nanopb FirebaseCore FirebaseMessaging GoogleToolboxForMac hermes-engine].include?(target.name)
+            fa = pt && pt.respond_to?(:file_accessor) ? pt.file_accessor : nil
+            ph = fa && fa.respond_to?(:public_headers) ? fa.public_headers : nil
+            Pod::UI.puts("[berucoffee] #{target.name} file_accessor=#{fa ? 'yes' : 'no'} public_headers=#{ph ? ph.map(&:to_s).inspect : 'none'}")
+            Pod::UI.puts("[berucoffee] #{target.name} final paths: #{paths}")
+          end
           flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
           build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{flags}#{paths}"
           cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'

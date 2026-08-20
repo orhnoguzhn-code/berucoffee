@@ -33,10 +33,10 @@ workflows:
           if [[ "$build_status" -ne 0 ]]; then
             echo "========== Xcode compiler errors =========="
             grep -E "(^| )error:|fatal error:" /tmp/ios-build.log | head -20 || true
-            echo "========== Failed compile command (search paths) =========="
-            tgt=$(grep -m1 -oE "in target '[^']+'" /tmp/ios-build.log | sed "s/in target '//;s/'//")
+            tgt=$(grep -E "(^| )error:" /tmp/ios-build.log | grep -oE "in target '[^']+'" | head -1 | sed "s/in target '//;s/'//")
             echo "failing target: $tgt"
-            grep -E "\.resp|common-args" /tmp/ios-build.log | grep -E "-c /" | tail -3 || true
+            echo "========== Failed compile command (search paths) =========="
+            grep -E "\.resp|common-args" /tmp/ios-build.log | grep -e "-c /" | tail -3 || true
             echo "========== Response file (-I flags) =========="
             resp=$(grep -oE "@[^ ]*${tgt}\.build/[^ ]*common-args\.resp" /tmp/ios-build.log | head -1 | sed 's/^@//')
             echo "resp: $resp"
@@ -47,6 +47,8 @@ workflows:
             find "ios/Pods/Headers/Public/$tgt" -maxdepth 3 2>/dev/null | head -20 || true
             echo "========== Real source header dirs for failing pod =========="
             find "ios/Pods/$tgt" -name '*.h' 2>/dev/null | sed 's|/[^/]*$||' | sort -u | head -30 || true
+            echo "========== Podfile-derived paths (pod install log) =========="
+            grep "berucoffee.*$tgt" /tmp/ios-build.log 2>/dev/null | head -20 || true
           fi
           exit "$build_status"
     artifacts:
