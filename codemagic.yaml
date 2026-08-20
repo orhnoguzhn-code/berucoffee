@@ -5,7 +5,7 @@ workflows:
     max_build_duration: 120
     environment:
       node: 22.12.0
-      xcode: 16.4
+      xcode: latest
       cocoapods: default
     scripts:
       - name: Install dependencies
@@ -15,50 +15,23 @@ workflows:
         script: |
           rm -rf ios/Pods
           rm -rf ios/Podfile.lock
-          rm -rf .symlinks/
-          rm -rf ios/.symlinks/
-          pod cache clean --all
-          rm -rf ~/.cocoapods/repos/cocoapods
-          rm -rf ~/Library/Developer/Xcode/DerivedData/*CoffeeLoyalty*
-      - name: Update pod repositories
-        script: |
-          pod repo update --silent
       - name: Pod install
         script: |
-          cd ios && EXPO_USE_SOURCE=1 pod install --repo-update --verbose && cd ..
-          if [ ! -f ios/Podfile.lock ]; then
-            echo "ERROR: Podfile.lock not created!"
-            exit 1
-          fi
+          cd ios && pod install --repo-update && cd ..
       - name: Build
         script: |
           set -o pipefail
-          echo "Starting Xcode build at $(date)"
-          
-          # Verify ExpoModulesJSI pod status
-          if [ -f "ios/Pods/Pods.xcodeproj/project.pbxproj" ]; then
-            echo "Checking ExpoModulesJSI target..."
-            grep -i "ExpoModulesJSI" ios/Pods/Pods.xcodeproj/project.pbxproj | head -5
-          fi
-          
           xcodebuild -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            SWIFT_ENABLE_EXPLICIT_MODULES=NO \
-            OTHER_SWIFT_FLAGS="-suppress-warnings" \
-            -derivedDataPath ios/build \
-            -disablePackageRepositoryCache \
             build 2>&1 | tee /tmp/ios-build.log
           build_status=${PIPESTATUS[0]}
           if [[ "$build_status" -ne 0 ]]; then
-            echo "========== Build FAILED =========="
-            echo "========== Relevant compiler errors =========="
-            grep -E "error:|fatal error:|SwiftCompile|CompileSwift|PhaseScriptExecution|Could not resolve package" /tmp/ios-build.log | tail -80 || true
-          else
-            echo "========== Build SUCCEEDED at $(date) =========="
+            echo "========== Xcode compiler errors =========="
+            grep -E "(^| )error:|fatal error:" /tmp/ios-build.log || true
           fi
           exit "$build_status"
     artifacts:
