@@ -127,6 +127,11 @@ target 'CoffeeLoyalty' do
               Dir.glob(File.join(pod_root, '**', '*.h')).each do |f|
                 d = File.dirname(f)
                 next if paths.include?("-I\"#{d}\"")
+                # Never inject a dir that shadows the C standard library:
+                # folly/portability ships lowercase stdio.h/stdlib.h shims that
+                # break libc++'s #include_next ("didn't find libc++'s <stdio.h>").
+                shadow = %w[stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h].any? { |h| File.exist?(File.join(d, h)) }
+                next if shadow
                 paths = "#{paths} -I\"#{d}\""
                 parent = File.dirname(d)
                 unless paths.include?("-I\"#{parent}\"")
