@@ -85,8 +85,16 @@ workflows:
             echo "========== @import lines in failing pod sources =========="
             grep -rn "@import" "ios/Pods/$tgt" --include="*.h" --include="*.m" --include="*.mm" 2>/dev/null | head -20 || true
             echo "========== FirebaseCoreInternal hunt =========="
-            find ios/Pods -maxdepth 3 -name 'FirebaseCoreInternal.h' 2>/dev/null
-            ls ios/Pods 2>/dev/null | grep -i 'firebase\|internal' | head -20
+            find ios/Pods -name 'FirebaseCoreInternal.h' 2>/dev/null
+            find ios/Pods/FirebaseCoreInternal -name '*.h' 2>/dev/null | head -20
+            ls -la ios/Pods/FirebaseCoreInternal 2>/dev/null | head -10
+            echo "========== Farm root contents =========="
+            ls -la ios/Pods/Headers/Public/ 2>/dev/null | head -40
+            ls -la ios/Pods/Headers/Public/FirebaseCoreInternal 2>/dev/null | head -20
+            echo "========== resp -I flags mentioning farm/internal =========="
+            if [ -n "$resp" ]; then
+              tr ' ' '\n' < "$resp" | grep -E '^-I' | grep -i 'Headers/Public\|FirebaseCoreInternal\|PODS_ROOT' || true
+            fi
             echo "========== Podfile-derived paths (pod install log) =========="
             grep -E "\[berucoffee\] ${tgt} " /tmp/pod-install.log 2>/dev/null | head -4 || true
             echo "========== ERROR SUMMARY (reprinted at end) =========="
