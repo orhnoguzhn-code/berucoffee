@@ -124,6 +124,23 @@ target 'CoffeeLoyalty' do
               File.write(f, new_content) if new_content != content
             end
           end
+          # Prefixed includes like <FirebaseCoreInternal/FirebaseCoreInternal.h>
+          # need a CocoaPods-style header farm, which use_frameworks! does not
+          # create. Build it ourselves with SYMLINKS (shared inode -> no
+          # duplicate-interface risk) and expose the farm root on the search
+          # path so <PodName/File.h> resolves to Public/<PodName>/File.h.
+          if File.directory?(pod_root)
+            farm_root = File.join(Pod::Config.instance.sandbox_root.to_s, 'Headers', 'Public')
+            Dir.mkdir_p(farm_root)
+            farm_dir = File.join(farm_root, target.name)
+            Dir.mkdir_p(farm_dir)
+            Dir.glob(File.join(pod_root, '**', '*.h')).each do |f|
+              link = File.join(farm_dir, File.basename(f))
+              File.symlink(f, link) unless File.exist?(link) || File.symlink?(link)
+            end
+            cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
+            build_config.build_settings['OTHER_CFLAGS'] = "#{cflags} -I\"$(PODS_ROOT)/Headers/Public\""
+          end
         end
         # Every pod target: expose its own source root on the clang command line.
         # CocoaPods' automatic header paths are replaced by framework paths under
