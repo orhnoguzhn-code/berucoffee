@@ -69,12 +69,30 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
 
-        # RN 0.86 regression: React-Core's Default subspec no longer includes
-        # React/DevSupport, but React/Base/RCTBridge.mm still imports its
-        # headers. Restore the search paths when building RNCore from source.
-        if target.name.start_with?('React-Core') && !target.name.include?('prebuilt')
+        # RN 0.86 source build: React Native pods lose most header search paths
+        # under use_frameworks! (React/DevSupport was dropped from React-Core's
+        # Default subspec and ReactCommon/third-party paths are not carried over).
+        # Restore the full set needed to compile RN C++/ObjC sources from source.
+        if (target.name.start_with?('React-') || target.name == 'ReactCommon') && !target.name.include?('prebuilt')
           hsp = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
-          hsp = "\"$(PODS_TARGET_SRCROOT)/React/DevSupport\" \"$(PODS_TARGET_SRCROOT)/React/Inspector\" #{hsp}"
+          extra_paths = [
+            "\"$(PODS_TARGET_SRCROOT)/React/DevSupport\"",
+            "\"$(PODS_TARGET_SRCROOT)/React/Inspector\"",
+            "\"$(PODS_TARGET_SRCROOT)/React\"",
+            "\"$(PODS_TARGET_SRCROOT)/ReactCommon\"",
+            "\"$(PODS_TARGET_SRCROOT)/ReactCommon/react/nativemodule/core\"",
+            "\"$(PODS_TARGET_SRCROOT)/ReactCommon/callinvoker\"",
+            "\"$(PODS_TARGET_SRCROOT)/ReactCommon/runtime\"",
+            "\"$(PODS_ROOT)/glog\"",
+            "\"$(PODS_ROOT)/boost\"",
+            "\"$(PODS_ROOT)/DoubleConversion\"",
+            "\"$(PODS_ROOT)/fast_float/include\"",
+            "\"$(PODS_ROOT)/fmt/include\"",
+            "\"$(PODS_ROOT)/SocketRocket\"",
+            "\"$(PODS_ROOT)/RCT-Folly\"",
+            "\"$(PODS_ROOT)/Headers/Public/ReactCommon\"",
+          ].join(' ')
+          hsp = "#{extra_paths} #{hsp}"
           build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp
         end
 
