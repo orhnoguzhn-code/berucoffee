@@ -45,10 +45,19 @@ jobs:
 
       - name: Build for simulator
         run: |
+          set -o pipefail
           xcodebuild build \
             -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
             -configuration Debug \
             -destination "platform=iOS Simulator,name=${{ steps.simulator.outputs.name }}" \
             CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_REQUIRED=NO \
+            2>&1 | tee xcodebuild.log
+
+      - name: Upload Xcode build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log

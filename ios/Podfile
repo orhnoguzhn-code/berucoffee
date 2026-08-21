@@ -10,13 +10,6 @@ require 'fileutils'
 # Expo bare workflow autolinking.
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
-# React Native 0.86 + Expo + Firebase needs the source-built RN core for the
-# Swift import path used by AppDelegate.swift. Keeping the RN core prebuilt here
-# causes the simulator build to fail during Firebase/React module compilation.
-ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
-ENV['RCT_USE_RN_DEP'] = '0'
-ENV['RCT_REMOVE_LEGACY_ARCH'] = '0'
-
 platform :ios, '16.4'
 prepare_react_native_project!
 use_expo_modules!
