@@ -34,6 +34,11 @@ use_expo_modules!
 use_frameworks! :linkage => :static
 $RNFirebaseAsStaticFramework = true
 
+# RNFirebase 21.7.0 is tested against Firebase iOS SDK 11.7.x.
+# Pin the SDK so pod install --repo-update does not resolve a newer
+# FirebaseCoreInternal layout that breaks the FirebaseCore heartbeat build.
+$FirebaseSDKVersion = '11.7.0'
+
 # react-native-maps supports use_frameworks! :linkage => :static since v1.6.0.
 $RNMapsAsStaticFramework = true
 
