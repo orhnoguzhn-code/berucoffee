@@ -92,7 +92,6 @@ target 'CoffeeLoyalty' do
               File.join(rn_abs, 'React', 'DevSupport'),
               File.join(rn_abs, 'React', 'Inspector'),
               File.join(rn_abs, 'ReactCommon'),
-              File.join(rn_abs, 'ReactCommon', 'jsitooling'),
               File.join(rn_abs, 'ReactCommon', 'runtimeexecutor'),
               File.join(rn_abs, 'ReactCommon', 'runtimeexecutor', 'platform', 'ios'),
               File.join(rn_abs, 'ReactCommon', 'react', 'utils', 'platform', 'ios'),
