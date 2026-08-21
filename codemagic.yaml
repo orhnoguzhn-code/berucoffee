@@ -27,17 +27,19 @@ workflows:
             -scheme CoffeeLoyalty \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -verbose \
+            -quiet \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             build 2>&1 | tee /tmp/ios-build.log
           build_status=${PIPESTATUS[0]}
           if [[ "$build_status" -ne 0 ]]; then
-            echo "========== Xcode compiler errors =========="
-            grep -E "(^| )error:|fatal error:" /tmp/ios-build.log | head -30 || true
+            echo "========== Xcode failure summary =========="
+            grep -n -E "error:|fatal error:|clang: error|SwiftCompile|CompileSwift|CompileC|PhaseScriptExecution|Ld |linker command failed|Undefined symbols|The following build commands failed|BUILD FAILED|Command .* failed" /tmp/ios-build.log | tail -120 || true
+            echo "========== Last 120 build-log lines =========="
+            tail -120 /tmp/ios-build.log || true
             tgt=$(awk '/build commands failed:/{f=1} f' /tmp/ios-build.log | grep -oE "in target '[^']+'" | head -1 | sed "s/in target '//;s/'//")
             if [ -z "$tgt" ]; then
-              tgt=$(grep -E "(^| )error:|fatal error:" /tmp/ios-build.log | grep -oE "in target '[^']+'" | head -1 | sed "s/in target '//;s/'//")
+              tgt=$(grep -E "error:|fatal error:|clang: error|SwiftCompile|CompileSwift|CompileC|PhaseScriptExecution|Ld |linker command failed|Undefined symbols|The following build commands failed|BUILD FAILED|Command .* failed" /tmp/ios-build.log | grep -oE "in target '[^']+'" | head -1 | sed "s/in target '//;s/'//")
             fi
             echo "failing target: $tgt"
             echo "========== Failed compile command (search paths) =========="
@@ -98,7 +100,7 @@ workflows:
             echo "========== Podfile-derived paths (pod install log) =========="
             grep -E "\[berucoffee\] ${tgt} " /tmp/pod-install.log 2>/dev/null | head -4 || true
             echo "========== ERROR SUMMARY (reprinted at end) =========="
-            grep -E "(^| )error:|fatal error:" /tmp/ios-build.log | head -30 || true
+            grep -n -E "error:|fatal error:|clang: error|SwiftCompile|CompileSwift|CompileC|PhaseScriptExecution|Ld |linker command failed|Undefined symbols|The following build commands failed|BUILD FAILED|Command .* failed" /tmp/ios-build.log | tail -120 || true
             echo "failing target: $tgt"
             echo "first failing command:"
             awk '/build commands failed:/{f=1} f && /\.o /{print; exit}' /tmp/ios-build.log | head -1 || true
