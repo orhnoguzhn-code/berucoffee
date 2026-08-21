@@ -119,7 +119,20 @@ target 'CoffeeLoyalty' do
         rn_abs = ENV['REACT_NATIVE_PATH'] || File.expand_path(File.join("..", "node_modules", "react-native"), Pod::Config.instance.installation_root.to_s)
         rn_abs = File.realpath(rn_abs) if File.exist?(rn_abs)
         sandbox_abs = Pod::Config.instance.sandbox_root.to_s
-        Pod::UI.puts("[berucoffee] RN abs path: #{rn_abs}")
+
+           # FirebaseCore's heartbeat implementation imports FirebaseCoreInternal
+           # headers. With static frameworks and modular headers CocoaPods does not
+           # always propagate this dependency's source headers to FirebaseCore's
+           # compile command, which causes FIRHeartbeatsPayload and
+           # FIRHeartbeatController to remain forward declarations on Codemagic.
+           if target.name == 'FirebaseCore'
+             internal_root = File.join(sandbox_abs, 'FirebaseCoreInternal')
+             Dir.glob(File.join(internal_root, '**', '*.h')).each do |header|
+               header_dir = File.dirname(header)
+               paths = "#{paths} -I\"#{header_dir}\"" unless paths.include?("-I\"#{header_dir}\"")
+             end
+           end
+            Pod::UI.puts("[berucoffee] RN abs path: #{rn_abs}")
         # Disable header maps so CocoaPods' .hmap files cannot shadow the -I
         # search paths below (a stale/mispointed hmap entry makes clang report
         # "file not found" even when a valid -I path exists).
