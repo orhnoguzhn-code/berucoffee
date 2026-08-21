@@ -11,14 +11,15 @@ workflows:
       - name: Install dependencies
         script: |
           npm ci
-      - name: Clean Pod cache
+      - name: Clean CocoaPods workspace
         script: |
           rm -rf ios/Pods
-          rm -rf ios/Podfile.lock
+          pod cache clean --all --verbose || true
       - name: Pod install
         script: |
           set -o pipefail
-          cd ios && pod install --repo-update 2>&1 | tee /tmp/pod-install.log && cd ..
+          cd ios && pod install --repo-update 2>&1 | tee /tmp/pod-install.log
+          cd ..
       - name: Build
         script: |
           set -o pipefail
