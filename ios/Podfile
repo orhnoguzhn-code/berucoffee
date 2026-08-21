@@ -80,7 +80,25 @@ target 'CoffeeLoyalty' do
           build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
           build_config.build_settings['SWIFT_VERSION'] = '5.0'
           build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-        end
+
+          # RN 0.86 source React-Core targets do not always inherit DevSupport
+          # headers when use_frameworks! is enabled. Keep this narrowly scoped to
+          # React targets; Firebase pods must use CocoaPods module integration.
+          if target.name.start_with?('React-') || target.name == 'ReactCommon'
+            rn_abs = ENV['REACT_NATIVE_PATH'] || File.expand_path(File.join('..', 'node_modules', 'react-native'), Pod::Config.instance.installation_root.to_s)
+            rn_abs = File.realpath(rn_abs) if File.exist?(rn_abs)
+            react_paths = [
+              File.join(rn_abs, 'React'),
+              File.join(rn_abs, 'React', 'DevSupport'),
+              File.join(rn_abs, 'React', 'Inspector'),
+              File.join(rn_abs, 'ReactCommon'),
+              File.join(rn_abs, 'ReactCommon', 'react', 'nativemodule', 'core'),
+              File.join(rn_abs, 'ReactCommon', 'callinvoker'),
+            ]
+            existing = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
+            build_config.build_settings['HEADER_SEARCH_PATHS'] = react_paths.map { |p| "\"#{p}\"" }.join(' ') + " #{existing}"
+          end
+            end
       end
     end
     end
