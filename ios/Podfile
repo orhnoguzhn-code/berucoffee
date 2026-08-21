@@ -7,115 +7,45 @@ require Pod::Executable.execute_command('node', ['-p',
 
 require 'fileutils'
 
-# Build React Native core and dependencies from source. RN 0.86's prebuilt
-# React-Core does not expose a Swift-importable React_RCTAppDelegate module,
-# so AppDelegate.swift's `import React_RCTAppDelegate` fails with prebuilt RNCore.
-ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
-# Third-party deps (glog, boost, folly, fmt, ...) stay PREBUILT: their source
-# podspecs have no usable header paths under use_frameworks! (fmt.podspec sets
-# none at all). Only RNCore itself must come from source for the
-# Swift-importable React_RCTAppDelegate module.
-ENV['RCT_USE_RN_DEP'] = '0'
-
-# Required for RNFB pods with RN 0.84+ source RNCore. See RNFB issue #8930.
-ENV['RCT_REMOVE_LEGACY_ARCH'] = '0'
-
-# Expo bare workflow needs this for proper pod autolinking.
+# Expo bare workflow autolinking.
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
-
-ENV['RCT_NEW_ARCH_ENABLED'] = '1'
 
 platform :ios, '16.4'
 prepare_react_native_project!
 use_expo_modules!
 
-# Required by react-native-firebase v21+ with Firebase iOS SDK 11.x.
-# See https://rnfirebase.io/#altering-cocoapods-to-use-frameworks
+# Firebase + RNFB works reliably with static frameworks in this project.
 use_frameworks! :linkage => :static
 $RNFirebaseAsStaticFramework = true
-
-# RNFirebase 21.7.0 is tested against Firebase iOS SDK 11.7.x.
-# Pin the SDK so pod install --repo-update does not resolve a newer
-# FirebaseCoreInternal layout that breaks the FirebaseCore heartbeat build.
 $FirebaseSDKVersion = '11.7.0'
-
-# react-native-maps supports use_frameworks! :linkage => :static since v1.6.0.
 $RNMapsAsStaticFramework = true
 
-# RNFB pods must be static libraries (not frameworks) to avoid module boundary
-# issues with React headers under use_frameworks!. See RNFB issue #8930.
-pre_install do |installer|
-  installer.pod_targets.each do |pod|
-    if pod.name.start_with?('RNFB')
-      def pod.build_type
-        Pod::BuildType.static_library
-      end
-    end
-  end
-end
+# New architecture is disabled here because the Expo + RN 0.86 + Firebase pod
+# combination is unstable in simulator builds and can trigger module/header
+# mismatches during the CocoaPods compile step.
+ENV['RCT_NEW_ARCH_ENABLED'] = '0'
 
 target 'CoffeeLoyalty' do
   config = use_native_modules!
 
   use_react_native!(
     :path => config[:reactNativePath],
-    :new_arch_enabled => true,
-    # An absolute path to your application root.
+    :new_arch_enabled => false,
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
+end
 
-  post_install do |installer|
-      react_native_post_install(
-        installer,
-        config[:reactNativePath],
-        :mac_catalyst_enabled => false,
-        # :ccache_enabled => true
-      )
+post_install do |installer|
+  react_native_post_install(
+    installer,
+    File.join(__dir__, 'node_modules', 'react-native'),
+    :mac_catalyst_enabled => false
+  )
 
-      # Keep the generated Pods project deterministic without modifying Firebase
-      # source files or rewriting imports. Firebase's module headers must be
-      # compiled through CocoaPods' normal module integration.
-      installer.pods_project.targets.each do |target|
-        target.build_configurations.each do |build_config|
-          build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
-          build_config.build_settings['SWIFT_VERSION'] = '5.0'
-          build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-
-          # RN 0.86 source React-Core targets do not always inherit DevSupport
-          # headers when use_frameworks! is enabled. Keep this narrowly scoped to
-          # React targets; Firebase pods must use CocoaPods module integration.
-          if target.name.start_with?('React-') || target.name == 'ReactCommon'
-            rn_abs = ENV['REACT_NATIVE_PATH'] || File.expand_path(File.join('..', 'node_modules', 'react-native'), Pod::Config.instance.installation_root.to_s)
-            rn_abs = File.realpath(rn_abs) if File.exist?(rn_abs)
-            react_paths = [
-              File.join(rn_abs, 'React'),
-              File.join(rn_abs, 'React', 'DevSupport'),
-              File.join(rn_abs, 'React', 'Inspector'),
-              File.join(rn_abs, 'ReactCommon'),
-              File.join(rn_abs, 'ReactCommon', 'jsitooling'),
-              File.join(rn_abs, 'ReactCommon', 'runtimeexecutor'),
-              File.join(rn_abs, 'ReactCommon', 'runtimeexecutor', 'platform', 'ios'),
-              File.join(rn_abs, 'ReactCommon', 'react', 'utils', 'platform', 'ios'),
-              File.join(rn_abs, 'ReactCommon', 'react', 'nativemodule', 'core'),
-              File.join(rn_abs, 'ReactCommon', 'callinvoker'),
-            File.join(Pod::Config.instance.sandbox_root.to_s, 'glog'),
-            File.join(Pod::Config.instance.sandbox_root.to_s, 'glog', 'src'),
-            File.join(Pod::Config.instance.sandbox_root.to_s, 'Headers', 'Public'),
-            File.join(Pod::Config.instance.sandbox_root.to_s, 'Headers', 'Public', 'glog'),
-            File.join(Pod::Config.instance.sandbox_root.to_s, 'Headers', 'Private'),
-            File.join(Pod::Config.instance.sandbox_root.to_s, 'Headers', 'Private', 'glog'),
-            File.join(Pod::Config.instance.sandbox_root.to_s, 'boost'),
-            File.join(Pod::Config.instance.sandbox_root.to_s, 'DoubleConversion'),
-            File.join(Pod::Config.instance.sandbox_root.to_s, 'fast_float', 'include'),
-            File.join(Pod::Config.instance.sandbox_root.to_s, 'fmt', 'include'),
-            File.join(Pod::Config.instance.sandbox_root.to_s, 'RCT-Folly'),
-            File.join(Pod::Config.instance.sandbox_root.to_s, 'SocketRocket'),
-            ]
-            existing = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
-            build_config.build_settings['HEADER_SEARCH_PATHS'] = react_paths.map { |p| "\"#{p}\"" }.join(' ') + " #{existing}"
-          end
-            end
-      end
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |build_config|
+      build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
+      build_config.build_settings['SWIFT_VERSION'] = '5.0'
     end
-    end
-    
+  end
+end
