@@ -10,7 +10,7 @@ on:
 jobs:
   build-and-test:
     name: Build CoffeeLoyalty
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - name: Check out repository
