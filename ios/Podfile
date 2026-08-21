@@ -95,6 +95,7 @@ target 'CoffeeLoyalty' do
               File.join(rn_abs, 'ReactCommon', 'react', 'nativemodule', 'core'),
               File.join(rn_abs, 'ReactCommon', 'callinvoker'),
             File.join(Pod::Config.instance.sandbox_root.to_s, 'glog'),
+            File.join(Pod::Config.instance.sandbox_root.to_s, 'glog', 'src'),
             File.join(Pod::Config.instance.sandbox_root.to_s, 'boost'),
             File.join(Pod::Config.instance.sandbox_root.to_s, 'DoubleConversion'),
             File.join(Pod::Config.instance.sandbox_root.to_s, 'fast_float', 'include'),
