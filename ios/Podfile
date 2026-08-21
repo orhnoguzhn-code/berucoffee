@@ -94,6 +94,7 @@ target 'CoffeeLoyalty' do
               File.join(rn_abs, 'ReactCommon'),
               File.join(rn_abs, 'ReactCommon', 'runtimeexecutor'),
               File.join(rn_abs, 'ReactCommon', 'runtimeexecutor', 'platform', 'ios'),
+              File.join(rn_abs, 'ReactCommon', 'react', 'utils', 'platform', 'ios'),
               File.join(rn_abs, 'ReactCommon', 'react', 'nativemodule', 'core'),
               File.join(rn_abs, 'ReactCommon', 'callinvoker'),
             File.join(Pod::Config.instance.sandbox_root.to_s, 'glog'),
