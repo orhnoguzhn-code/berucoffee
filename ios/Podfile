@@ -22,6 +22,8 @@
     end
 
     platform :ios, '16.4'
+    ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
+    ENV['RCT_USE_RN_DEP'] = '0'
     prepare_react_native_project!
     use_expo_modules!
 
