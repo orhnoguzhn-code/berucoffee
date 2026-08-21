@@ -52,30 +52,6 @@ end
 target 'CoffeeLoyalty' do
   config = use_native_modules!
 
-  # Standard, documented fix for the family of errors this project was
-  # hitting ("duplicate interface definition for class 'FIROptions'",
-  # "receiver type '...' is a forward declaration", "Swift pod X depends
-  # upon Y which does not define modules"). These all stem from the same
-  # root cause: under use_frameworks! :linkage => :static, Swift-based
-  # Firebase pods (FirebaseCoreInternal, FirebaseSessions, ...) need their
-  # Objective-C dependencies to define a proper Clang module. Marking those
-  # dependencies :modular_headers => true makes CocoaPods generate a real
-  # module.modulemap for them, which is the documented react-native-firebase
-  # fix (see https://rnfirebase.io/ and firebase/firebase-ios-sdk#15506)
-  # instead of hand-disabling modules and reconstructing header search paths.
-  pod 'GoogleUtilities', :modular_headers => true
-  pod 'FirebaseCore', :modular_headers => true
-  pod 'FirebaseCoreInternal', :modular_headers => true
-  pod 'FirebaseCoreExtension', :modular_headers => true
-  pod 'FirebaseInstallations', :modular_headers => true
-  pod 'FirebaseAppCheckInterop', :modular_headers => true
-  pod 'FirebaseAuthInterop', :modular_headers => true
-  pod 'FirebaseMessagingInterop', :modular_headers => true
-  pod 'GoogleDataTransport', :modular_headers => true
-  pod 'GTMSessionFetcher', :modular_headers => true
-  pod 'nanopb', :modular_headers => true
-  pod 'PromisesObjC', :modular_headers => true
-
   use_react_native!(
     :path => config[:reactNativePath],
     :new_arch_enabled => true,
@@ -119,29 +95,106 @@ target 'CoffeeLoyalty' do
         rn_abs = ENV['REACT_NATIVE_PATH'] || File.expand_path(File.join("..", "node_modules", "react-native"), Pod::Config.instance.installation_root.to_s)
         rn_abs = File.realpath(rn_abs) if File.exist?(rn_abs)
         sandbox_abs = Pod::Config.instance.sandbox_root.to_s
-
-           # FirebaseCore's heartbeat implementation imports FirebaseCoreInternal
-           # headers. With static frameworks and modular headers CocoaPods does not
-           # always propagate this dependency's source headers to FirebaseCore's
-           # compile command, which causes FIRHeartbeatsPayload and
-           # FIRHeartbeatController to remain forward declarations on Codemagic.
-           if target.name == 'FirebaseCore'
-             internal_root = File.join(sandbox_abs, 'FirebaseCoreInternal')
-             Dir.glob(File.join(internal_root, '**', '*.h')).each do |header|
-               header_dir = File.dirname(header)
-               paths = "#{paths} -I\"#{header_dir}\"" unless paths.include?("-I\"#{header_dir}\"")
-             end
-           end
-            Pod::UI.puts("[berucoffee] RN abs path: #{rn_abs}")
+        Pod::UI.puts("[berucoffee] RN abs path: #{rn_abs}")
         # Disable header maps so CocoaPods' .hmap files cannot shadow the -I
         # search paths below (a stale/mispointed hmap entry makes clang report
         # "file not found" even when a valid -I path exists).
         build_config.build_settings['USE_HEADERMAP'] = 'NO'
-        # NOTE: Firebase/Google module visibility (the old source of
-        # "duplicate interface definition" / "forward declaration" errors)
-        # is now handled above via `pod 'X', :modular_headers => true` on the
-        # affected pods, instead of disabling CLANG_ENABLE_MODULES and
-        # reconstructing header search paths by hand.
+        # Firebase/Google pods ship guard-less public headers (FIROptions.h
+        # etc.). Under use_frameworks! the same file is loaded twice - once from
+        # the built framework's Headers copy (via module/umbrella import) and
+        # once from the pod source dir (via the -I paths injected below) - which
+        # yields "duplicate interface definition". Fix: disable modules so
+        # #import resolves headers (not framework modules) and drop the
+        # framework Headers copies from HEADER_SEARCH_PATHS so every include
+        # resolves to the single source copy.
+        if target.name.start_with?('Firebase', 'Google', 'RNFB')
+          build_config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
+          hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
+          if hsp
+            hsp_clean = hsp.split(' ').reject { |p| p.include?('.framework/Headers') }.join(' ')
+            build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp_clean
+          end
+          # @import requires modules; rewrite it to plain header imports so the
+          # module-less Firebase/Google pods still compile (FirebaseCoreInternal.h
+          # uses @import FirebaseCore; @import GoogleUtilities;).
+          #
+          # IMPORTANT: importing only the umbrella header (<X/X.h>) is not enough.
+          # With CLANG_ENABLE_MODULES=ON, "@import X;" makes clang treat the WHOLE
+          # module's symbol table as visible - including headers the umbrella never
+          # #imports itself (e.g. FirebaseCoreInternal's FIRHeartbeatsPayload.h /
+          # FIRHeartbeatController.h, which FirebaseCoreInternal.h does not include).
+          # With modules OFF that whole-module visibility trick disappears, so a
+          # class like FIRHeartbeatsPayload ends up only forward-declared (@class)
+          # wherever the umbrella happens to reference it, causing
+          # "receiver type '...' for instance message is a forward declaration" /
+          # "no visible @interface ... declares the selector" in FIRHeartbeatLogger.m.
+          # Fix: expand "@import X;" into #import lines for EVERY public header
+          # that ships inside pod X, not just X.h, so nothing is left as a bare
+          # forward declaration.
+          pod_root = File.join(Pod::Config.instance.sandbox_root.to_s, target.name)
+          if File.directory?(pod_root)
+            Dir.glob(File.join(pod_root, '**', '*.{h,m,mm}')).each do |f|
+              content = File.read(f)
+              new_content = content.gsub(/@import\s+([A-Za-z_][A-Za-z0-9_]*)\s*;/) do
+                mod = $1
+                mod_root = File.join(Pod::Config.instance.sandbox_root.to_s, mod)
+                hdr_names = []
+                if File.directory?(mod_root)
+                  Dir.glob(File.join(mod_root, '**', '*.h')).each do |h|
+                    hc = (File.read(h) rescue '')
+                    # Skip "Internal"-style headers that use their own
+                    # pod-root-relative quoted includes, e.g.
+                    # #import "FirebaseCore/Sources/Public/FirebaseCore/X.h".
+                    # Those assume compilation from the pod's real source
+                    # tree and break ("file not found") once pulled in flat
+                    # from the Headers/Public farm, so don't force-import
+                    # them; the classes we actually need visible (e.g.
+                    # FIRHeartbeatsPayload, FIRHeartbeatController) don't use
+                    # this style of include.
+                    next if hc =~ /#import\s+"[^"]*\/[^"]*"/
+                    hdr_names << File.basename(h)
+                  end
+                  hdr_names = hdr_names.uniq.sort
+                end
+                if hdr_names.empty?
+                  "#import <#{mod}/#{mod}.h>"
+                else
+                  hdr_names.map { |h| "#import <#{mod}/#{h}>" }.join("\n")
+                end
+              end
+              File.write(f, new_content) if new_content != content
+            end
+          end
+          # Prefixed includes like <FirebaseCoreInternal/FirebaseCoreInternal.h>
+          # need a CocoaPods-style header farm, which use_frameworks! does not
+          # create. Collect .h files from ALL Firebase/Google pods (headers
+          # often live in a dependency's dir, e.g. FirebaseCoreInternal.h in
+          # FirebaseCore/Extension) and mirror them FLAT as symlinks under
+          # EVERY Firebase/Google farm dir (shared inode -> no duplicate
+          # interfaces), then expose the farm root on the search path so
+          # <PodName/File.h> resolves to Public/<PodName>/File.h.
+          if File.directory?(pod_root)
+            fb_pods = pod_target_map.values.select { |p| p.name.start_with?('Firebase', 'Google', 'RNFB', 'Interop') }
+            farm_root = File.join(Pod::Config.instance.sandbox_root.to_s, 'Headers', 'Public')
+            FileUtils.mkdir_p(farm_root)
+            hdrs = []
+            fb_pods.each do |ptc|
+              root = File.join(Pod::Config.instance.sandbox_root.to_s, ptc.name)
+              hdrs += Dir.glob(File.join(root, '**', '*.h')) if File.directory?(root)
+            end
+            fb_pods.each do |ptd|
+              farm_dir = File.join(farm_root, ptd.name)
+              FileUtils.mkdir_p(farm_dir)
+              hdrs.each do |f|
+                link = File.join(farm_dir, File.basename(f))
+                File.symlink(f, link) unless File.exist?(link) || File.symlink?(link)
+              end
+            end
+            cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
+            build_config.build_settings['OTHER_CFLAGS'] = "#{cflags} -I\"$(PODS_ROOT)/Headers/Public\""
+          end
+        end
         # Every pod target: expose its own source root on the clang command line.
         # CocoaPods' automatic header paths are replaced by framework paths under
         # use_frameworks!, so each pod must find its own headers directly.
