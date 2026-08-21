@@ -94,6 +94,13 @@ target 'CoffeeLoyalty' do
               File.join(rn_abs, 'ReactCommon'),
               File.join(rn_abs, 'ReactCommon', 'react', 'nativemodule', 'core'),
               File.join(rn_abs, 'ReactCommon', 'callinvoker'),
+            File.join(Pod::Config.instance.sandbox_root.to_s, 'glog'),
+            File.join(Pod::Config.instance.sandbox_root.to_s, 'boost'),
+            File.join(Pod::Config.instance.sandbox_root.to_s, 'DoubleConversion'),
+            File.join(Pod::Config.instance.sandbox_root.to_s, 'fast_float', 'include'),
+            File.join(Pod::Config.instance.sandbox_root.to_s, 'fmt', 'include'),
+            File.join(Pod::Config.instance.sandbox_root.to_s, 'RCT-Folly'),
+            File.join(Pod::Config.instance.sandbox_root.to_s, 'SocketRocket'),
             ]
             existing = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
             build_config.build_settings['HEADER_SEARCH_PATHS'] = react_paths.map { |p| "\"#{p}\"" }.join(' ') + " #{existing}"
