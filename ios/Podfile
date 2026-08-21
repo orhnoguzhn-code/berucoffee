@@ -15,7 +15,7 @@ ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
 # podspecs have no usable header paths under use_frameworks! (fmt.podspec sets
 # none at all). Only RNCore itself must come from source for the
 # Swift-importable React_RCTAppDelegate module.
-ENV['RCT_USE_RN_DEP'] = '1'
+ENV['RCT_USE_RN_DEP'] = '0'
 
 # Required for RNFB pods with RN 0.84+ source RNCore. See RNFB issue #8930.
 ENV['RCT_REMOVE_LEGACY_ARCH'] = '0'
