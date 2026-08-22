@@ -110,6 +110,26 @@
                 end
               end
             end
+            # Xcode 26 + USE_HEADERMAP=NO: #import <Pod/Header.h> resolves to the
+            # COPY in the built framework's Headers dir while quoted imports
+            # resolve to the source copy -> every guard-less header (SocketRocket,
+            # Firebase) hits "redefinition/duplicate interface". Fix: search the
+            # SOURCE dirs of every dependency pod BEFORE the framework Headers
+            # paths so both import styles load the same physical file.
+            dep_roots = []
+            if pt
+              dep_roots << pt.name
+              (pt.recursive_dependent_targets || []).each { |pdt| dep_roots << pdt.name }
+            end
+            dep_roots.each do |dn|
+              dr = File.join(sandbox_abs, dn.to_s)
+              next unless File.directory?(dr)
+              Dir.glob(File.join(dr, '**', '*.h')).each do |f|
+                d = File.dirname(f)
+                next if shadow_dirs.any? { |h| File.exist?(File.join(d, h)) }
+                paths = "#{paths} -I\"#{d}\"" unless paths.include?("-I\"#{d}\"")
+              end
+            end
             flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
             build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{flags}#{paths}"
             cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
