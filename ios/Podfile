@@ -140,19 +140,26 @@
 
             # Fix Firebase header redefinition: FirebaseInstallations and other Firebase pods
             # include FirebaseCore headers from both source and framework, causing duplicate
-            # interface definitions. Remove FirebaseCore framework from search paths when
-            # building Firebase pods that depend on it, and remove FirebaseCore source headers
-            # from HEADER_SEARCH_PATHS to prevent vendored FirebaseCore headers from being used.
+            # interface definitions. Remove FirebaseCore source headers from HEADER_SEARCH_PATHS
+            # to prevent vendored FirebaseCore headers from being used. Keep modules enabled
+            # so @import FirebaseCore works correctly with framework headers only.
             if target.name.start_with?('Firebase') && target.name != 'FirebaseCore'
-              build_config.build_settings['OTHER_CFLAGS'] = (build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)').gsub(/-F"[^"]*FirebaseCore[^"]*"/, '')
-              build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = (build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)').gsub(/-F"[^"]*FirebaseCore[^"]*"/, '')
-              build_config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
-              build_config.build_settings['DEFINES_MODULE'] = 'NO'
               # Remove FirebaseCore source headers from HEADER_SEARCH_PATHS
               hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
               if hsp
                 hsp = hsp.gsub(/"[^"]*FirebaseCore[^"]*"/, '').gsub(/\s+/, ' ').strip
                 build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp
+              end
+              # Also remove from OTHER_CFLAGS and OTHER_CPLUSPLUSFLAGS
+              cflags = build_config.build_settings['OTHER_CFLAGS']
+              if cflags
+                cflags = cflags.gsub(/-I"[^"]*FirebaseCore[^"]*"/, '').gsub(/\s+/, ' ').strip
+                build_config.build_settings['OTHER_CFLAGS'] = cflags
+              end
+              cppflags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS']
+              if cppflags
+                cppflags = cppflags.gsub(/-I"[^"]*FirebaseCore[^"]*"/, '').gsub(/\s+/, ' ').strip
+                build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = cppflags
               end
             end
           end
