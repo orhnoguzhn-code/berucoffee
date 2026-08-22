@@ -57,18 +57,26 @@
           build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
           build_config.build_settings['SWIFT_VERSION'] = '5.0'
           build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-          if target.name == 'React-Core.common'
+
+          # Fix RCT_ENABLE_INSPECTOR issue across all React-Core targets
+          if target.name.include?('React-Core')
+            existing_defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+            existing_defs = [existing_defs] if existing_defs.is_a?(String)
+
+            # Remove any existing RCT_ENABLE_INSPECTOR definition
+            existing_defs = existing_defs.reject { |def| def.include?('RCT_ENABLE_INSPECTOR') }
+
+            # Add the correct definition
+            existing_defs << 'RCT_ENABLE_INSPECTOR=1'
+
+            build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = existing_defs
+
             build_config.build_settings['HEADER_SEARCH_PATHS'] = [
               '$(inherited)',
               '"$(PODS_ROOT)/../node_modules/react-native/React/DevSupport"'
-            ]
-            build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = [
-              '$(inherited)',
-              'RCT_ENABLE_INSPECTOR=0'
             ]
           end
         end
       end
     end
     end
-    
