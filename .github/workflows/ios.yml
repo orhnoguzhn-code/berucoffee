@@ -10,7 +10,7 @@ on:
 jobs:
   build-and-test:
     name: Build CoffeeLoyalty
-    runs-on: macos-15
+    runs-on: macos-14
 
     steps:
       - name: Check out repository
@@ -19,19 +19,32 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.13.0
+          node-version: 22
           cache: npm
 
-      - name: Verify Xcode version
-        run: xcodebuild -version
+      - name: Select compatible Xcode
+        run: |
+          sudo xcode-select -switch /Applications/Xcode_15.4.app/Contents/Developer
+          xcodebuild -version
 
       - name: Install JavaScript dependencies
         run: npm ci
 
       - name: Align Expo JSI Swift tools version
         run: |
-          sed -i '' '1s/6.2/6.1/' node_modules/expo-modules-jsi/apple/Package.swift
-          grep -q 'swift-tools-version: 6.1' node_modules/expo-modules-jsi/apple/Package.swift
+          set -e
+          pkg="node_modules/expo-modules-jsi/apple/Package.swift"
+          if [ -f "$pkg" ]; then
+            perl -0pi -e 's/swift-tools-version:\s*6\.2/swift-tools-version: 6.1/' "$pkg"
+            grep -q 'swift-tools-version: 6.1' "$pkg"
+          else
+            echo "Expo JSI package not found: $pkg"
+            exit 1
+          fi
+
+      - name: Clean stale Pods and DerivedData
+        run: |
+          rm -rf ios/Pods ios/Podfile.lock ~/Library/Developer/Xcode/DerivedData/*
 
       - name: Install CocoaPods dependencies
         working-directory: ios
@@ -55,6 +68,7 @@ jobs:
             -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
             -configuration Debug \
+            -derivedDataPath build/DerivedData \
             -destination "platform=iOS Simulator,name=${{ steps.simulator.outputs.name }}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
