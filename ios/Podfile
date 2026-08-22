@@ -64,7 +64,7 @@
             existing_defs = [existing_defs] if existing_defs.is_a?(String)
 
             # Remove any existing RCT_ENABLE_INSPECTOR definition
-            existing_defs = existing_defs.reject { |def| def.include?('RCT_ENABLE_INSPECTOR') }
+            existing_defs = existing_defs.reject { |d| d.include?('RCT_ENABLE_INSPECTOR') }
 
             # Add the correct definition
             existing_defs << 'RCT_ENABLE_INSPECTOR=1'
