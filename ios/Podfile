@@ -72,6 +72,8 @@
           build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
           build_config.build_settings['SWIFT_VERSION'] = '5.0'
           build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+          # Xcode 16 explicit module PCM generation can fail for GTMSessionFetcher.
+          build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
           build_config.build_settings['USE_HEADERMAP'] = 'NO'
 
           # Source third-party pods (fmt, glog, RCT-Folly, ...) lose their own
