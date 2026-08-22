@@ -140,12 +140,29 @@
 
             # Fix GTMSessionFetcher header redefinition: ensure framework headers are not
             # included when building the pod itself. Keep modules enabled for Swift imports
-            # but remove framework search paths to prevent framework header inclusion in source code.
+            # but remove framework search paths and source headers to prevent duplicate definitions.
             if target.name == 'GTMSessionFetcher'
               build_config.build_settings['FRAMEWORK_SEARCH_PATHS'] = '$(inherited)'
               # Also remove the built framework from the search paths
               build_config.build_settings['OTHER_CFLAGS'] = (build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)').gsub(/-F"[^"]*GTMSessionFetcher[^"]*"/, '')
               build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = (build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)').gsub(/-F"[^"]*GTMSessionFetcher[^"]*"/, '')
+              # Remove GTMSessionFetcher source headers from HEADER_SEARCH_PATHS
+              hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
+              if hsp
+                hsp = hsp.gsub(/"[^"]*GTMSessionFetcher[^"]*"/, '').gsub(/\s+/, ' ').strip
+                build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp
+              end
+              # Also remove from OTHER_CFLAGS and OTHER_CPLUSPLUSFLAGS
+              cflags = build_config.build_settings['OTHER_CFLAGS']
+              if cflags
+                cflags = cflags.gsub(/-I"[^"]*GTMSessionFetcher[^"]*"/, '').gsub(/\s+/, ' ').strip
+                build_config.build_settings['OTHER_CFLAGS'] = cflags
+              end
+              cppflags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS']
+              if cppflags
+                cppflags = cppflags.gsub(/-I"[^"]*GTMSessionFetcher[^"]*"/, '').gsub(/\s+/, ' ').strip
+                build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = cppflags
+              end
               # Keep modules enabled so Swift imports work correctly
               build_config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
               build_config.build_settings['DEFINES_MODULE'] = 'YES'
