@@ -60,28 +60,26 @@
 
           # Fix RCT_ENABLE_INSPECTOR issue across all React-Core targets
           if target.name.include?('React-Core')
-            existing_defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
-            existing_defs = [existing_defs] if existing_defs.is_a?(String)
+            # Set preprocessor definition
+            defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+            defs = [defs] if defs.is_a?(String)
+            defs = defs.reject { |d| d.include?('RCT_ENABLE_INSPECTOR') }
+            defs << 'RCT_ENABLE_INSPECTOR=1'
+            build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
 
-            # Remove any existing RCT_ENABLE_INSPECTOR definition
-            existing_defs = existing_defs.reject { |d| d.include?('RCT_ENABLE_INSPECTOR') }
-
-            # Add the correct definition
-            existing_defs << 'RCT_ENABLE_INSPECTOR=1'
-
-            build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = existing_defs
-
-            # Add all necessary Inspector header search paths
-            header_paths = build_config.build_settings['HEADER_SEARCH_PATHS'] || ['$(inherited)']
-            header_paths = [header_paths] if header_paths.is_a?(String)
+            # Set header search paths without extra quotes
+            paths = build_config.build_settings['HEADER_SEARCH_PATHS'] || []
+            paths = [paths] if paths.is_a?(String)
+            paths = paths.map { |p| p.gsub(/^"|"$/, '') } # Remove existing quotes
             
-            header_paths += [
-              '"$(PODS_ROOT)/../node_modules/react-native/React/DevSupport"',
-              '"$(PODS_ROOT)/../node_modules/react-native/React/Inspector"',
-              '"$(PODS_ROOT)/../node_modules/react-native/React/Base"'
+            paths += [
+              '$(PODS_ROOT)/../node_modules/react-native/React/DevSupport',
+              '$(PODS_ROOT)/../node_modules/react-native/React/Inspector',
+              '$(PODS_ROOT)/../node_modules/react-native/React/Base',
+              '$(PODS_ROOT)/../node_modules/react-native/React/Cxx'
             ]
             
-            build_config.build_settings['HEADER_SEARCH_PATHS'] = header_paths.uniq
+            build_config.build_settings['HEADER_SEARCH_PATHS'] = paths.uniq.join(' ')
           end
         end
       end
