@@ -58,10 +58,13 @@
           build_config.build_settings['SWIFT_VERSION'] = '5.0'
           build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
 
-          # Disable Inspector for React-Core to fix RCT_ENABLE_INSPECTOR compilation
-          if target.name.include?('React-Core')
-            build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= '$(inherited)'
-            build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] += ' RCT_ENABLE_INSPECTOR=0'
+          # RCT_ENABLE_INSPECTOR must be defined for React targets
+          if target.name.include?('React')
+            defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || []
+            defs = [defs] if defs.is_a?(String)
+            defs = defs.map(&:to_s).reject { |d| d.include?('RCT_ENABLE_INSPECTOR') }
+            defs << 'RCT_ENABLE_INSPECTOR=1'
+            build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
           end
         end
       end
