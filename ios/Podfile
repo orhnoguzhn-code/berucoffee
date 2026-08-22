@@ -58,8 +58,14 @@
           build_config.build_settings['SWIFT_VERSION'] = '5.0'
           build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
           if target.name == 'React-Core.common'
-            build_config.build_settings['HEADER_SEARCH_PATHS'] ||= ['$(inherited)']
-            build_config.build_settings['HEADER_SEARCH_PATHS'] << '"$(PODS_ROOT)/../node_modules/react-native/React/DevSupport"'
+            build_config.build_settings['HEADER_SEARCH_PATHS'] = [
+              '$(inherited)',
+              '"$(PODS_ROOT)/../node_modules/react-native/React/DevSupport"'
+            ]
+            build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = [
+              '$(inherited)',
+              'RCT_ENABLE_INSPECTOR=0'
+            ]
           end
         end
       end
