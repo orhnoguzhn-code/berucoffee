@@ -77,18 +77,21 @@
           # Source third-party pods (fmt, glog, RCT-Folly, ...) lose their own
           # include dirs under use_frameworks!; e.g. fmt/src/format.cc cannot
           # find "fmt/format-inl.h" because no -I points at Pods/fmt/include.
-          # Inject the srcroot, header_mappings_dir and every walked header dir
-          # (plus parents, for prefixed includes) of the pod and its transitive
-          # dependencies onto the clang command line.
+          # Collect the srcroot, header_mappings_dir and every walked header
+          # dir (plus parents, for prefixed includes) of the pod and its
+          # transitive dependencies.
           unless target.name.start_with?('Pods-')
             pt = pod_target_map[target.name]
-            paths = ' -I"$(PODS_TARGET_SRCROOT)"'
+            dirs = ['$(PODS_TARGET_SRCROOT)']
             if pt
               sp = pt.respond_to?(:podspec) ? pt.podspec : nil
               if sp && sp.respond_to?(:header_mappings_dir)
                 hmd = sp.header_mappings_dir
-                paths = "#{paths} -I\"$(PODS_TARGET_SRCROOT)/#{hmd}\"" if hmd && !hmd.to_s.empty?
+                dirs << "$(PODS_TARGET_SRCROOT)/#{hmd}" if hmd && !hmd.to_s.empty?
               end
+              # Never inject a dir that shadows the C standard library
+              # (folly/portability ships lowercase stdio.h/stdlib.h shims
+              # that break libc++'s #include_next).
               shadow_dirs = %w[stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h]
               hdr_targets = [pt]
               hdr_targets += pt.recursive_dependent_targets if pt.respond_to?(:recursive_dependent_targets)
@@ -97,43 +100,31 @@
                 next unless File.directory?(pod_root)
                 Dir.glob(File.join(pod_root, '**', '*.h')).each do |f|
                   d = File.dirname(f)
-                  next if paths.include?("-I\"#{d}\"")
-                  # Never inject a dir that shadows the C standard library
-                  # (folly/portability ships lowercase stdio.h/stdlib.h shims
-                  # that break libc++'s #include_next).
+                  next if dirs.include?(d)
                   next if shadow_dirs.any? { |h| File.exist?(File.join(d, h)) }
-                  paths = "#{paths} -I\"#{d}\""
+                  dirs << d
                   parent = File.dirname(d)
-                  unless paths.include?("-I\"#{parent}\"") || shadow_dirs.any? { |h| File.exist?(File.join(parent, h)) }
-                    paths = "#{paths} -I\"#{parent}\""
-                  end
+                  dirs << parent unless dirs.include?(parent) || shadow_dirs.any? { |h| File.exist?(File.join(parent, h)) }
                 end
               end
             end
-            # Xcode 26 + USE_HEADERMAP=NO: #import <Pod/Header.h> resolves to the
-            # COPY in the built framework's Headers dir while quoted imports
-            # resolve to the source copy -> every guard-less header (SocketRocket,
-            # Firebase) hits "redefinition/duplicate interface". Fix: search the
-            # SOURCE dirs of every dependency pod BEFORE the framework Headers
-            # paths so both import styles load the same physical file.
-            dep_roots = []
-            if pt
-              dep_roots << pt.name
-              (pt.recursive_dependent_targets || []).each { |pdt| dep_roots << pdt.name }
-            end
-            dep_roots.each do |dn|
-              dr = File.join(sandbox_abs, dn.to_s)
-              next unless File.directory?(dr)
-              Dir.glob(File.join(dr, '**', '*.h')).each do |f|
-                d = File.dirname(f)
-                next if shadow_dirs.any? { |h| File.exist?(File.join(d, h)) }
-                paths = "#{paths} -I\"#{d}\"" unless paths.include?("-I\"#{d}\"")
-              end
-            end
+            # Xcode emits HEADER_SEARCH_PATHS -I flags and the -F framework
+            # search path BEFORE anything injected via OTHER_CFLAGS, so a
+            # -I added there can never win: #import <SocketRocket/SRWebSocket.h>
+            # keeps resolving to the built framework's Headers COPY while the
+            # quoted import resolves to the source copy -> redefinitions in
+            # guard-less headers. PREPEND the source dirs to
+            # HEADER_SEARCH_PATHS (they become the first -I flags, ahead of
+            # -F) so both import styles load the same physical source file.
+            hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
+            hsp = hsp.is_a?(String) ? hsp : (hsp.is_a?(Array) ? hsp.join(' ') : '$(inherited)')
+            quoted = dirs.map { |d| "\"#{d}\"" }.join(' ')
+            build_config.build_settings['HEADER_SEARCH_PATHS'] = "#{quoted} #{hsp}"
+            inc_flags = dirs.map { |d| "-I\"#{d}\"" }.join(' ')
             flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
-            build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{flags}#{paths}"
+            build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{flags} #{inc_flags}"
             cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
-            build_config.build_settings['OTHER_CFLAGS'] = "#{cflags}#{paths}"
+            build_config.build_settings['OTHER_CFLAGS'] = "#{cflags} #{inc_flags}"
           end
 
           # Disable Inspector to avoid missing RCTInspectorDevServerHelper.h in Expo 57
