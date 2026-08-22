@@ -58,12 +58,13 @@
           build_config.build_settings['SWIFT_VERSION'] = '5.0'
           build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
 
-          # RCT_ENABLE_INSPECTOR must be defined for React targets
+          # Disable Inspector to avoid missing RCTInspectorDevServerHelper.h in Expo 57
           if target.name.include?('React')
+            # Ensure RCT_ENABLE_INSPECTOR is defined as 0 to skip problematic imports
             defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || []
-            defs = [defs] if defs.is_a?(String)
-            defs = defs.map(&:to_s).reject { |d| d.include?('RCT_ENABLE_INSPECTOR') }
-            defs << 'RCT_ENABLE_INSPECTOR=1'
+            defs = defs.is_a?(String) ? defs.split(' ') : [defs].flatten
+            defs = defs.map(&:to_s).reject { |d| d.start_with?('RCT_ENABLE_INSPECTOR') }
+            defs << 'RCT_ENABLE_INSPECTOR=0'
             build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
           end
         end
