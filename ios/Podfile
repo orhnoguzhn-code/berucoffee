@@ -138,6 +138,18 @@
               build_config.build_settings['DEFINES_MODULE'] = 'NO'
             end
 
+            # Fix GTMSessionFetcher header redefinition: ensure framework headers are not
+            # included when building the pod itself. Only use source headers.
+            if target.name == 'GTMSessionFetcher'
+              build_config.build_settings['FRAMEWORK_SEARCH_PATHS'] = '$(inherited)'
+              # Also remove the built framework from the search paths
+              build_config.build_settings['OTHER_CFLAGS'] = (build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)').gsub(/-F"[^"]*GTMSessionFetcher[^"]*"/, '')
+              build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = (build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)').gsub(/-F"[^"]*GTMSessionFetcher[^"]*"/, '')
+              # Disable modular headers to prevent framework header inclusion
+              build_config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
+              build_config.build_settings['DEFINES_MODULE'] = 'NO'
+            end
+
             # Fix Firebase header redefinition: FirebaseInstallations and other Firebase pods
             # include FirebaseCore headers from both source and framework, causing duplicate
             # interface definitions. Remove FirebaseCore source headers from HEADER_SEARCH_PATHS
