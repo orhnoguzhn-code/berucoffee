@@ -71,10 +71,17 @@
 
             build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = existing_defs
 
-            build_config.build_settings['HEADER_SEARCH_PATHS'] = [
-              '$(inherited)',
-              '"$(PODS_ROOT)/../node_modules/react-native/React/DevSupport"'
+            # Add all necessary Inspector header search paths
+            header_paths = build_config.build_settings['HEADER_SEARCH_PATHS'] || ['$(inherited)']
+            header_paths = [header_paths] if header_paths.is_a?(String)
+            
+            header_paths += [
+              '"$(PODS_ROOT)/../node_modules/react-native/React/DevSupport"',
+              '"$(PODS_ROOT)/../node_modules/react-native/React/Inspector"',
+              '"$(PODS_ROOT)/../node_modules/react-native/React/Base"'
             ]
+            
+            build_config.build_settings['HEADER_SEARCH_PATHS'] = header_paths.uniq
           end
         end
       end
