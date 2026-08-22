@@ -141,10 +141,13 @@
             # Fix Firebase header redefinition: FirebaseInstallations and other Firebase pods
             # include FirebaseCore headers from both source and framework, causing duplicate
             # interface definitions. Remove FirebaseCore framework from search paths when
-            # building Firebase pods that depend on it.
+            # building Firebase pods that depend on it, and disable modules to prevent
+            # @import FirebaseCore from loading framework headers.
             if target.name.start_with?('Firebase') && target.name != 'FirebaseCore'
               build_config.build_settings['OTHER_CFLAGS'] = (build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)').gsub(/-F"[^"]*FirebaseCore[^"]*"/, '')
               build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = (build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)').gsub(/-F"[^"]*FirebaseCore[^"]*"/, '')
+              build_config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
+              build_config.build_settings['DEFINES_MODULE'] = 'NO'
             end
           end
 
