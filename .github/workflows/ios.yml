@@ -52,6 +52,29 @@ jobs:
         run: |
           rm -rf ios/Pods ios/Podfile.lock ~/Library/Developer/Xcode/DerivedData/*
 
+      - name: Isolate GTMSessionFetcher source headers
+        run: |
+          set -e
+          ruby <<'RUBY'
+          path = 'ios/Podfile'
+          text = File.read(path)
+          marker = "            # Xcode emits HEADER_SEARCH_PATHS -I flags and the -F framework\n"
+          patch = <<~'PATCH'
+            # GTMSessionFetcher is consumed by FirebaseAuth through its generated module.
+            # Do not expose the pod's source headers to consumer targets: with static
+            # frameworks Xcode can otherwise load both the source header and the generated
+            # framework header, producing duplicate protocol/class declarations.
+            unless target.name == 'GTMSessionFetcher'
+              dirs.reject! { |d| d.include?('/GTMSessionFetcher') || d.include?('\\GTMSessionFetcher') }
+            end
+          PATCH
+          unless text.include?('GTMSessionFetcher is consumed by FirebaseAuth')
+            updated = text.sub(marker, patch + marker)
+            raise 'Could not locate Podfile header-search-path marker' if updated == text
+            File.write(path, updated)
+          end
+          RUBY
+
       - name: Install CocoaPods dependencies
         working-directory: ios
         run: set -o pipefail && pod install --repo-update 2>&1 | tee ../pod-install.log
