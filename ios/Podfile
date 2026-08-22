@@ -33,17 +33,11 @@
     $FirebaseSDKVersion = '11.7.0'
     $RNMapsAsStaticFramework = true
 
-    # New architecture is disabled here because the Expo + RN 0.86 + Firebase pod
-    # combination is unstable in simulator builds and can trigger module/header
-    # mismatches during the CocoaPods compile step.
-    ENV['RCT_NEW_ARCH_ENABLED'] = '0'
-
     target 'CoffeeLoyalty' do
     config = use_native_modules!
 
     use_react_native!(
       :path => config[:reactNativePath],
-      :new_arch_enabled => false,
       :app_path => "#{Pod::Config.instance.installation_root}/.."
     )
 
