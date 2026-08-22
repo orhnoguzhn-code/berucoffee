@@ -59,12 +59,62 @@
       rn_abs = File.realpath(rn_abs) if File.exist?(rn_abs)
       sandbox_abs = Pod::Config.instance.sandbox_root.to_s
 
+      # Map pod target name -> PodTarget so each target can read its own real
+      # header layout (spec readers and file_accessor are unreliable in
+      # post_install; the on-disk layout is the source of truth).
+      pod_target_map = {}
+      installer.pod_targets.each do |pt|
+        pod_target_map[pt.name] = pt
+      end
+
       installer.pods_project.targets.each do |target|
         target.build_configurations.each do |build_config|
           build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
           build_config.build_settings['SWIFT_VERSION'] = '5.0'
           build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
           build_config.build_settings['USE_HEADERMAP'] = 'NO'
+
+          # Source third-party pods (fmt, glog, RCT-Folly, ...) lose their own
+          # include dirs under use_frameworks!; e.g. fmt/src/format.cc cannot
+          # find "fmt/format-inl.h" because no -I points at Pods/fmt/include.
+          # Inject the srcroot, header_mappings_dir and every walked header dir
+          # (plus parents, for prefixed includes) of the pod and its transitive
+          # dependencies onto the clang command line.
+          unless target.name.start_with?('Pods-')
+            pt = pod_target_map[target.name]
+            paths = ' -I"$(PODS_TARGET_SRCROOT)"'
+            if pt
+              sp = pt.respond_to?(:podspec) ? pt.podspec : nil
+              if sp && sp.respond_to?(:header_mappings_dir)
+                hmd = sp.header_mappings_dir
+                paths = "#{paths} -I\"$(PODS_TARGET_SRCROOT)/#{hmd}\"" if hmd && !hmd.to_s.empty?
+              end
+              shadow_dirs = %w[stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h]
+              hdr_targets = [pt]
+              hdr_targets += pt.recursive_dependent_targets if pt.respond_to?(:recursive_dependent_targets)
+              hdr_targets.each do |ptc|
+                pod_root = File.join(sandbox_abs, ptc.name)
+                next unless File.directory?(pod_root)
+                Dir.glob(File.join(pod_root, '**', '*.h')).each do |f|
+                  d = File.dirname(f)
+                  next if paths.include?("-I\"#{d}\"")
+                  # Never inject a dir that shadows the C standard library
+                  # (folly/portability ships lowercase stdio.h/stdlib.h shims
+                  # that break libc++'s #include_next).
+                  next if shadow_dirs.any? { |h| File.exist?(File.join(d, h)) }
+                  paths = "#{paths} -I\"#{d}\""
+                  parent = File.dirname(d)
+                  unless paths.include?("-I\"#{parent}\"") || shadow_dirs.any? { |h| File.exist?(File.join(parent, h)) }
+                    paths = "#{paths} -I\"#{parent}\""
+                  end
+                end
+              end
+            end
+            flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
+            build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{flags}#{paths}"
+            cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
+            build_config.build_settings['OTHER_CFLAGS'] = "#{cflags}#{paths}"
+          end
 
           # Disable Inspector to avoid missing RCTInspectorDevServerHelper.h in Expo 57
           if target.name.include?('React')
