@@ -54,7 +54,7 @@ jobs:
 
       - name: Install CocoaPods dependencies
         working-directory: ios
-        run: pod install --repo-update
+        run: set -o pipefail && pod install --repo-update 2>&1 | tee ../pod-install.log
 
       - name: Select available iPhone simulator
         id: simulator
@@ -80,9 +80,30 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             2>&1 | tee xcodebuild.log
 
+      - name: Diagnose build failure
+        if: failure()
+        run: |
+          echo "========== ERROR SUMMARY =========="
+          grep -E "error:|fatal error:" xcodebuild.log | sort -u | head -40 || true
+          echo "========== failing target =========="
+          line=$(awk '/build commands failed:/{f=1} f && /\.o /{print; exit}' xcodebuild.log)
+          echo "$line"
+          tgt=$(echo "$line" | grep -oE "in target '[^']+'" | sed "s/in target '//;s/'//" | head -1)
+          echo "failing target: $tgt"
+          if [ -n "$tgt" ]; then
+            resp=$(grep -oE "@[^ ]*${tgt}\.build/[^ ]*common-args\.resp" xcodebuild.log | head -1 | sed 's/^@//')
+            echo "resp: $resp"
+            if [ -n "$resp" ]; then
+              echo "========== resp -I flags =========="
+              tr ' ' '\n' < "$resp" | grep -E '^-I' | head -100 || true
+            fi
+          fi
+
       - name: Upload Xcode build log
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-log
-          path: xcodebuild.log
+          path: |
+            xcodebuild.log
+            pod-install.log

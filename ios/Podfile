@@ -52,20 +52,61 @@
         :mac_catalyst_enabled => false
       )
 
+      # RN 0.86 source build loses React/DevSupport (RCTDevLoadingViewProtocol.h),
+      # React/Inspector and third-party header search paths under use_frameworks!.
+      # Restore them with absolute paths resolved at pod-install time.
+      rn_abs = ENV['REACT_NATIVE_PATH'] || File.expand_path('../node_modules/react-native', __dir__)
+      rn_abs = File.realpath(rn_abs) if File.exist?(rn_abs)
+      sandbox_abs = Pod::Config.instance.sandbox_root.to_s
+
       installer.pods_project.targets.each do |target|
         target.build_configurations.each do |build_config|
           build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
           build_config.build_settings['SWIFT_VERSION'] = '5.0'
           build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+          build_config.build_settings['USE_HEADERMAP'] = 'NO'
 
           # Disable Inspector to avoid missing RCTInspectorDevServerHelper.h in Expo 57
           if target.name.include?('React')
-            # Ensure RCT_ENABLE_INSPECTOR is defined as 0 to skip problematic imports
             defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || []
             defs = defs.is_a?(String) ? defs.split(' ') : [defs].flatten
             defs = defs.map(&:to_s).reject { |d| d.start_with?('RCT_ENABLE_INSPECTOR') }
             defs << 'RCT_ENABLE_INSPECTOR=0'
             build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+          end
+
+          # Restore RN header search paths for every React-* target so files
+          # like RCTDevLoadingViewProtocol.h (React/DevSupport) resolve.
+          if target.name.start_with?('React-') || target.name == 'ReactCommon' ||
+             target.name == 'RNReanimated' || target.name == 'RNWorklets'
+            abs_paths = [
+              "#{rn_abs}/React/DevSupport",
+              "#{rn_abs}/React/Inspector",
+              "#{rn_abs}/React",
+              "#{rn_abs}/ReactCommon",
+              "#{rn_abs}/ReactCommon/react/nativemodule/core",
+              "#{rn_abs}/ReactCommon/callinvoker",
+              "#{rn_abs}/ReactCommon/runtime",
+              "#{rn_abs}/ReactCommon/jsitooling",
+              File.join(sandbox_abs, 'glog'),
+              File.join(sandbox_abs, 'boost'),
+              File.join(sandbox_abs, 'DoubleConversion'),
+              File.join(sandbox_abs, 'fast_float', 'include'),
+              File.join(sandbox_abs, 'fmt', 'include'),
+              File.join(sandbox_abs, 'SocketRocket'),
+              File.join(sandbox_abs, 'RCT-Folly'),
+              File.join(sandbox_abs, 'Headers', 'Public', 'ReactCommon')
+            ]
+            hsp = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
+            quoted = abs_paths.map { |p| "\"#{p}\"" }.join(' ')
+            build_config.build_settings['HEADER_SEARCH_PATHS'] = "#{quoted} #{hsp}"
+            # Belt and suspenders: same paths on the clang command line.
+            flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
+            build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] =
+              "#{flags} #{abs_paths.map { |p| "-I\"#{p}\"" }.join(' ')}"
+            cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
+            build_config.build_settings['OTHER_CFLAGS'] =
+              "#{cflags} #{abs_paths.map { |p| "-I\"#{p}\"" }.join(' ')}"
           end
         end
       end
