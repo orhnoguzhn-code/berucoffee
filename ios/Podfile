@@ -125,6 +125,18 @@
             build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{flags} #{inc_flags}"
             cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
             build_config.build_settings['OTHER_CFLAGS'] = "#{cflags} #{inc_flags}"
+
+            # Fix SocketRocket header redefinition: ensure framework headers are not
+            # included when building the pod itself. Only use source headers.
+            if target.name == 'SocketRocket'
+              build_config.build_settings['FRAMEWORK_SEARCH_PATHS'] = '$(inherited)'
+              # Also remove the built framework from the search paths
+              build_config.build_settings['OTHER_CFLAGS'] = (build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)').gsub(/-F"[^"]*SocketRocket[^"]*"/, '')
+              build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = (build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)').gsub(/-F"[^"]*SocketRocket[^"]*"/, '')
+              # Disable modular headers to prevent framework header inclusion
+              build_config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
+              build_config.build_settings['DEFINES_MODULE'] = 'NO'
+            end
           end
 
           # Disable Inspector to avoid missing RCTInspectorDevServerHelper.h in Expo 57
