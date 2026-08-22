@@ -10,7 +10,7 @@ on:
 jobs:
   build-and-test:
     name: Build CoffeeLoyalty
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Check out repository
@@ -24,7 +24,12 @@ jobs:
 
       - name: Select compatible Xcode
         run: |
-          sudo xcode-select -switch /Applications/Xcode_15.4.app/Contents/Developer
+          DEVELOPER_DIR=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort | tail -1)
+          if [ -z "$DEVELOPER_DIR" ]; then
+            echo "No Xcode 16.x installation found on the runner."
+            exit 1
+          fi
+          sudo xcode-select -switch "$DEVELOPER_DIR/Contents/Developer"
           xcodebuild -version
 
       - name: Install JavaScript dependencies
