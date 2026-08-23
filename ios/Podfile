@@ -39,7 +39,6 @@ target 'CoffeeLoyalty' do
   post_install do |installer|
     react_native_post_install(installer, config[:reactNativePath], :mac_catalyst_enabled => false)
 
-    # RCT-Folly: avoid an incomplete system demangle.h/libiberty API.
     folly_demangle = File.join(Pod::Config.instance.sandbox_root.to_s, 'RCT-Folly', 'folly', 'Demangle.cpp')
     if File.file?(folly_demangle)
       source = File.read(folly_demangle)
@@ -88,10 +87,6 @@ target 'CoffeeLoyalty' do
             end
           end
 
-          # Never leak generated framework headers back into React-Core's own
-          # source compilation. React-Core builds React.framework, so its
-          # generated Headers/RCT*.h must not win over node_modules/react-native
-          # source headers and cause duplicate interface/protocol definitions.
           dirs.reject! do |d|
             d.include?('/React-Core') || d.include?('/React.framework') || d.include?('/React-Core.common')
           end
@@ -150,14 +145,32 @@ target 'CoffeeLoyalty' do
           build_config.build_settings['OTHER_CFLAGS'] = "#{cflags} #{abs_paths.map { |p| "-I\"#{p}\"" }.join(' ')}"
         end
 
-        # React-Core must compile against its source tree, never its just-built
-        # React.framework product. Remove product framework paths from this
-        # target so imports cannot resolve the same RCT headers twice.
         if target.name == 'React-Core'
+          # The failing compile is React-Core itself. Xcode is finding the
+          # already-generated React.framework Headers/RCT*.h in addition to
+          # node_modules/react-native/React/*.h. Strip every generated React
+          # product path from all header/include settings, not just framework
+          # search paths. This is essential because the inherited CocoaPods
+          # xcconfig can inject the product Headers directory directly into
+          # HEADER_SEARCH_PATHS and -I flags.
+          %w[HEADER_SEARCH_PATHS OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS].each do |key|
+            value = build_config.build_settings[key]
+            next unless value
+            value = value.is_a?(Array) ? value.join(' ') : value.to_s
+            value = value.gsub(/"[^"]*\/React-Core\.common\/React\.framework\/Headers"/, '')
+            value = value.gsub(/"[^"]*\/React\.framework\/Headers"/, '')
+            value = value.gsub(/-I"[^"]*\/React-Core\.common\/React\.framework\/Headers"/, '')
+            value = value.gsub(/-I"[^"]*\/React\.framework\/Headers"/, '')
+            value = value.gsub(/"[^"]*\/React-Core\.common\/Headers"/, '')
+            value = value.gsub(/\s+/, ' ').strip
+            build_config.build_settings[key] = value
+          end
+
           fps = build_config.build_settings['FRAMEWORK_SEARCH_PATHS']
           if fps
             fps = fps.is_a?(String) ? fps : fps.join(' ')
-            fps = fps.gsub(/"[^"]*\/React-Core\.common[^"]*"/, '').gsub(/"[^"]*\/React\.framework[^"]*"/, '')
+            fps = fps.gsub(/"[^"]*\/React-Core\.common[^"]*"/, '')
+            fps = fps.gsub(/"[^"]*\/React\.framework[^"]*"/, '')
             build_config.build_settings['FRAMEWORK_SEARCH_PATHS'] = fps.gsub(/\s+/, ' ').strip
           end
           build_config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
