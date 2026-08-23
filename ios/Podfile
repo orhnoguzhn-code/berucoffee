@@ -51,8 +51,7 @@ target 'CoffeeLoyalty' do
     )
 
     # React-Core + use_frameworks! workaround.
-    # The Podfile lives in ios/, while node_modules lives at the repository
-    # root. Use the repository-root-relative path; installation_root is ios/.
+    # Podfile is in ios/, node_modules is in the repository root.
     react_native_root = File.expand_path(
       '../node_modules/react-native',
       Pod::Config.instance.installation_root
@@ -63,16 +62,26 @@ target 'CoffeeLoyalty' do
       raise "React Native RCTBridge.mm not found at #{react_bridge}"
     end
 
+    # RCTBridge.mm uses short DevSupport header imports. With React-Core as a
+    # static library under use_frameworks!, those headers are not found by the
+    # compiler. Rewrite every short RCTInspector*/RCTDevLoading* import in one
+    # pass instead of chasing individual missing headers on every build.
     source = File.read(react_bridge)
-    import_rewrites = {
-      '#import "RCTInspectorDevServerHelper.h"' => '#if RCT_ENABLE_INSPECTOR\n#import "../DevSupport/RCTInspectorDevServerHelper.h"\n#endif',
-      '#import "RCTDevLoadingViewProtocol.h"' => '#import "../DevSupport/RCTDevLoadingViewProtocol.h"',
-      '#import "RCTInspectorNetworkHelper.h"' => '#import "../DevSupport/RCTInspectorNetworkHelper.h"'
-    }
-    import_rewrites.each do |from, to|
-      source = source.gsub(from, to)
+    source = source.gsub(/#import\s+"(RCT(?:Inspector|DevLoading)[^"]+\.h)"/) do
+      header = Regexp.last_match(1)
+      if header == 'RCTInspectorDevServerHelper.h'
+        "#if RCT_ENABLE_INSPECTOR\n#import \"../DevSupport/#{header}\"\n#endif"
+      else
+        "#import \"../DevSupport/#{header}\""
+      end
     end
     File.write(react_bridge, source)
+
+    # Fail early if the patch did not actually remove the short imports.
+    patched_source = File.read(react_bridge)
+    if patched_source.match?(/#import\s+"RCT(?:Inspector|DevLoading)[^"]+\.h"/)
+      raise 'React-Core RCTBridge.mm DevSupport header patch was not applied'
+    end
 
     # RCT-Folly workaround for Xcode's incompatible optional demangle.h.
     folly_demangle = File.join(
