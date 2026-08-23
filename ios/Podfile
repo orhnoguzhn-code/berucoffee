@@ -36,23 +36,19 @@ target 'CoffeeLoyalty' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
-  # React Native 0.86.x has a known incompatibility with use_frameworks!:
-  # React-Core's Objective-C headers can be compiled both from node_modules and
-  # from the generated React framework, producing duplicate interfaces and
-  # missing Inspector/DevSupport headers. React Native itself works correctly
-  # when React-Core is integrated as a static library, while the rest of the
-  # pods can remain static frameworks for Firebase/Expo.
+  # React Native 0.86.x + use_frameworks! can make React-Core headers visible
+  # both from node_modules and from a generated React framework. That produces
+  # duplicate RCT* interfaces and then a cascade of missing Inspector/DevSupport
+  # headers. Keep React-Core as a static library while Firebase/Expo remain
+  # static frameworks.
   #
-  # Do NOT use pod_target.build_type = ... here: that setter is not available
-  # in all CocoaPods versions used by CI. Defining the PodTarget method is the
-  # supported per-pod workaround and avoids the CocoaPods install-time
-  # "undefined method build_type=" failure.
+  # This requires a CocoaPods version that exposes PodTarget#build_type=.
+  # CI pins CocoaPods 1.16.2 so this is deterministic and does not rely on
+  # monkey-patching CocoaPods internals.
   pre_install do |installer|
     installer.pod_targets.each do |pod_target|
-      if pod_target.name == 'React-Core' || pod_target.name == 'React-Core.common'
-        def pod_target.build_type
-          Pod::BuildType.static_library
-        end
+      if pod_target.name == 'React-Core' || pod_target.name.start_with?('React-Core.')
+        pod_target.build_type = Pod::BuildType.static_library
       end
     end
   end
