@@ -25,9 +25,15 @@ jobs:
       - name: Select compatible Xcode
         run: |
           set -euo pipefail
-          DEVELOPER_DIR="/Applications/Xcode_16.4.app"
-          if [ ! -d "$DEVELOPER_DIR" ]; then
-            echo "Xcode 16.4 is not installed on this runner."
+          DEVELOPER_DIR=""
+          for candidate in /Applications/Xcode_26.6.app /Applications/Xcode_26.4.app /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app; do
+            if [ -d "$candidate" ]; then
+              DEVELOPER_DIR="$candidate"
+              break
+            fi
+          done
+          if [ -z "$DEVELOPER_DIR" ]; then
+            echo "No Xcode 26.x installation was found on this runner."
             ls -d /Applications/Xcode*.app 2>/dev/null || true
             exit 1
           fi
@@ -36,7 +42,13 @@ jobs:
           xcodebuild -version
 
       - name: Install JavaScript dependencies
-        run: npm ci
+        run: |
+          set -euo pipefail
+          rm -rf node_modules
+          npm install --no-audit --no-fund
+          npx expo install --fix -- --no-audit --no-fund
+          echo "Expo dependency tree after alignment:"
+          npm ls expo expo-modules-jsi expo-modules-core --depth=0 || true
 
       - name: Patch React Native legacy imports before CocoaPods
         shell: bash
@@ -48,17 +60,19 @@ jobs:
           perl -0pi -e 's/#import "RCTDevLoadingViewProtocol\.h"/#import "..\/DevSupport\/RCTDevLoadingViewProtocol.h"/g' "$base"
           grep -n -E 'RCTInspectorDevServerHelper|RCTDevLoadingViewProtocol' "$base"
 
-      - name: Align Expo JSI Swift tools version
+      - name: Verify Expo JSI uses its native Swift toolchain
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
           pkg="node_modules/expo-modules-jsi/apple/Package.swift"
-          if [ -f "$pkg" ]; then
-            perl -0pi -e 's/swift-tools-version:\s*6\.2/swift-tools-version: 6.1/' "$pkg"
-            grep -q 'swift-tools-version: 6.1' "$pkg"
-          else
-            echo "Expo JSI package not found: $pkg"
-            exit 1
+          test -f "$pkg"
+          head -n 3 "$pkg"
+          if grep -q 'swift-tools-version: 6.1' "$pkg"; then
+            echo "Expo JSI is incorrectly pinned to Swift 6.1; removing the incompatible override."
+            sed -i '' '1{/swift-tools-version: 6.1/s/6.1/6.2/}' "$pkg"
           fi
+          grep -q 'swift-tools-version: 6.2' "$pkg" || { echo "Unexpected Expo JSI Swift tools version:"; head -n 3 "$pkg"; exit 1; }
+          echo "Expo JSI Swift tools version: 6.2"
 
       - name: Clean stale Pods and DerivedData
         run: |
@@ -171,7 +185,6 @@ jobs:
       - name: Build for simulator
         run: |
           set -o pipefail
-          export DEVELOPER_DIR="/Applications/Xcode_16.4.app/Contents/Developer"
           xcodebuild build \
             -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
