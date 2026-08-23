@@ -24,13 +24,16 @@ jobs:
 
       - name: Select compatible Xcode
         run: |
-          DEVELOPER_DIR=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
-          if [ -z "$DEVELOPER_DIR" ]; then
-            echo "No Xcode installation found on the runner."
+          set -e
+          DEVELOPER_DIR="/Applications/Xcode_16.4.app"
+          if [ ! -d "$DEVELOPER_DIR" ]; then
+            echo "Xcode 16.4 is not installed on this runner."
+            ls -d /Applications/Xcode*.app 2>/dev/null || true
             exit 1
           fi
           echo "Using Xcode at: $DEVELOPER_DIR"
           sudo xcode-select -switch "$DEVELOPER_DIR/Contents/Developer"
+          export DEVELOPER_DIR="$DEVELOPER_DIR/Contents/Developer"
           xcodebuild -version
 
       - name: Install JavaScript dependencies
@@ -82,7 +85,11 @@ jobs:
       - name: Select available iPhone simulator
         id: simulator
         run: |
-          device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $1; exit}' | xargs)
+          set -e
+          device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 16/ {print $1; exit}' | xargs)
+          if [ -z "$device" ]; then
+            device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $1; exit}' | xargs)
+          fi
           if [ -z "$device" ]; then
             echo "No available iPhone simulator was found."
             exit 1
@@ -92,7 +99,8 @@ jobs:
 
       - name: Build for simulator
         run: |
-          set -o pipefail
+          set -euo pipefail
+          export DEVELOPER_DIR="/Applications/Xcode_16.4.app/Contents/Developer"
           xcodebuild build \
             -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
