@@ -58,12 +58,11 @@ target 'CoffeeLoyalty' do
       File.write(folly_demangle, patched) if patched != source
     end
 
-    # React-Core is built as a static framework. RN source files use basename
-    # imports for DevSupport/Inspector headers, but the generated React
-    # framework module is not available for those imports while the source
-    # target is compiling. Keep these imports source-relative rather than
-    # restoring recursive header search paths, which caused duplicate React
-    # framework/source declarations.
+    # React Native 0.86 with static frameworks has a header-layout mismatch:
+    # source files in React/Base and React/DevSupport use basename/relative
+    # inspector imports while the generated React module exposes the Cxx
+    # inspector header through the React public-header namespace. Keep the
+    # source patches narrow; do not add recursive header search paths.
     react_base = File.join(config[:reactNativePath].to_s, 'React', 'Base')
     react_bridge = File.join(react_base, 'RCTBridge.mm')
     if File.file?(react_bridge)
@@ -80,19 +79,18 @@ target 'CoffeeLoyalty' do
       File.write(react_bridge, patched) if patched != source
     end
 
-    # RN 0.86 moved the inspector packager implementation to the Cxx bridge.
-    # The legacy RCTInspectorPackagerConnection.h is not the header used by
-    # the current React Native source. Resolve the DevServer helper directly
-    # to the Cxx Inspector header.
     inspector_helper = File.join(config[:reactNativePath].to_s, 'React', 'DevSupport', 'RCTInspectorDevServerHelper.h')
     if File.file?(inspector_helper)
       source = File.read(inspector_helper)
       patched = source.gsub(
         '#import <React/RCTInspectorPackagerConnection.h>',
-        '#import "../Inspector/RCTCxxInspectorPackagerConnection.h"'
+        '#import <React/RCTCxxInspectorPackagerConnection.h>'
       ).gsub(
         '#import "../Inspector/RCTInspectorPackagerConnection.h"',
-        '#import "../Inspector/RCTCxxInspectorPackagerConnection.h"'
+        '#import <React/RCTCxxInspectorPackagerConnection.h>'
+      ).gsub(
+        '#import "../Inspector/RCTCxxInspectorPackagerConnection.h"',
+        '#import <React/RCTCxxInspectorPackagerConnection.h>'
       )
       File.write(inspector_helper, patched) if patched != source
     end
