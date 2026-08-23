@@ -17,10 +17,7 @@ end
 
 platform :ios, '16.4'
 
-# Keep React Native on the source-based CocoaPods dependency path.
-# Do not force the prebuilt React Core/dependencies artifacts here.
-ENV['RCT_NEW_ARCH_ENABLED'] = '0'
-
+# React Native 0.86 uses the New Architecture. Do not disable it here.
 prepare_react_native_project!
 use_expo_modules!
 use_frameworks! :linkage => :static
@@ -33,7 +30,7 @@ target 'CoffeeLoyalty' do
 
   use_react_native!(
     :path => config[:reactNativePath],
-    :new_arch_enabled => false,
+    :new_arch_enabled => true,
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
@@ -50,21 +47,6 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
       end
-    end
-
-    # Fail early with a useful message if CocoaPods restores an incomplete
-    # RCT-Folly checkout. The file must come from the RN dependency itself;
-    # never generate or patch Demangle.cpp in CI.
-    folly_demangle = File.join(
-      Pod::Config.instance.installation_root,
-      'Pods',
-      'RCT-Folly',
-      'folly',
-      'Demangle.cpp'
-    )
-
-    unless File.file?(folly_demangle)
-      raise "RCT-Folly is incomplete: #{folly_demangle} is missing. Clean Pods/CocoaPods cache and reinstall dependencies."
     end
   end
 end
