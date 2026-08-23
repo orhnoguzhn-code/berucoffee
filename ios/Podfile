@@ -61,26 +61,27 @@ target 'CoffeeLoyalty' do
       File.write(folly_demangle, patched) if patched != source
     end
 
-    # RN 0.86's RCTBridge.mm uses a basename import for this header. In this
-    # project React-Core is built as a static framework and the generated
-    # framework header search setup does not reliably expose React/DevSupport.
-    # Patch only this include to a source-relative path; this is deterministic
-    # and avoids restoring the old recursive header-search-path workaround that
-    # caused duplicate React framework/source declarations.
-    react_bridge = File.join(config[:reactNativePath].to_s, 'React', 'Base', 'RCTBridge.mm')
+    # React-Core is built as a static framework in this project. React source
+    # files contain basename imports for DevSupport headers, while the normal
+    # React framework/module mapping is unavailable during this source build.
+    # Patch only the affected imports to deterministic source-relative paths;
+    # do not restore recursive header search paths, which caused duplicate
+    # RCTSurfaceView/RCTSurfaceProtocol declarations.
+    react_base = File.join(config[:reactNativePath].to_s, 'React', 'Base')
+    react_bridge = File.join(react_base, 'RCTBridge.mm')
     if File.file?(react_bridge)
       source = File.read(react_bridge)
-      patched = source.gsub(
-        '#import "RCTInspectorDevServerHelper.h"',
-        '#import "../DevSupport/RCTInspectorDevServerHelper.h"'
-      )
+      replacements = {
+        '#import "RCTInspectorDevServerHelper.h"' => '#import "../DevSupport/RCTInspectorDevServerHelper.h"',
+        '#import "RCTDevLoadingViewProtocol.h"' => '#import "../DevSupport/RCTDevLoadingViewProtocol.h"'
+      }
+      patched = source.dup
+      replacements.each { |from, to| patched = patched.gsub(from, to) }
       File.write(react_bridge, patched) if patched != source
     end
 
-    # RCTInspectorDevServerHelper.h is under React/DevSupport, while its
-    # packager connection header is under React/Inspector. The normal
-    # <React/...> module mapping is not available for this static React-Core
-    # source compilation, so make this dependency source-relative as well.
+    # RCTInspectorDevServerHelper.h depends on the Inspector header through
+    # the <React/...> module path. Make that dependency source-relative too.
     inspector_helper = File.join(config[:reactNativePath].to_s, 'React', 'DevSupport', 'RCTInspectorDevServerHelper.h')
     if File.file?(inspector_helper)
       source = File.read(inspector_helper)
