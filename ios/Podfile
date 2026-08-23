@@ -20,12 +20,19 @@ if File.file?(runtime_scheduler)
   File.write(runtime_scheduler, patched) if patched != source
 end
 
-# Swift 6.2 (Xcode 26.0-26.3) rejects weak let; weak references must be mutable.
 if Dir.exist?(expo_jsi_root)
   Dir.glob(File.join(expo_jsi_root, '**/*.swift')).each do |file|
     source = File.read(file)
-    patched = source.gsub(/\bweak let\s+runtime\b/, 'weak var runtime')
-    patched = patched.gsub('abs(milliseconds) <= maxJavaScriptDateMilliseconds', 'Swift.abs(milliseconds) <= maxJavaScriptDateMilliseconds')
+    patched = source
+      .gsub(/\bweak let\s+runtime\b/, 'weak var runtime')
+      .gsub('abs(milliseconds) <= maxJavaScriptDateMilliseconds', 'Swift.abs(milliseconds) <= maxJavaScriptDateMilliseconds')
+
+    # Swift 6 enforces Sendable checking on these reference-wrapper classes.
+    # They intentionally contain weak, mutable runtime references and are safe
+    # for the existing JSI ownership model; mark only class conformances as
+    # @unchecked Sendable so Swift does not reject the weak var storage.
+    patched = patched.gsub(/^(\s*(?:public\s+|internal\s+|private\s+|final\s+|open\s+)*class\s+[^\n:]+(?:\s*:\s*[^\n{]*?)?)\bSendable\b/, '\\1@unchecked Sendable')
+
     File.write(file, patched) if patched != source
   end
 end
@@ -44,8 +51,6 @@ ENV['RCT_NEW_ARCH_ENABLED'] = '1'
 prepare_react_native_project!
 use_expo_modules!
 use_frameworks! :linkage => :static
-# RNFirebase requires this when use_frameworks! is enabled so RNFBApp/RNFBMessaging
-# are integrated as static frameworks with their React headers available as modules.
 $RNFirebaseAsStaticFramework = true
 $FirebaseSDKVersion = '11.7.0'
 $RNMapsAsStaticFramework = true
