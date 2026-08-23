@@ -68,10 +68,6 @@ jobs:
           hash -r
           echo "RubyGems bin: ${GEM_BIN}"
           echo "pod executable: $(command -v pod)"
-
-          # The runner may already contain CocoaPods 1.17.x. Installing 1.16.2
-          # does not necessarily make the unqualified `pod` executable select
-          # that version. RubyGems' explicit version selector does.
           pod_version="$(pod _1.16.2_ --version)"
           echo "CocoaPods selected version: ${pod_version}"
           test "${pod_version}" = "1.16.2"
@@ -95,14 +91,35 @@ jobs:
           echo "========== PODFILE =========="
           sed -n '1,280p' Podfile
           echo "========== POD INSTALL =========="
-          pod _1.16.2_ install --repo-update --clean-install --verbose 2>&1 | tee ../pod-install.log
-          status=${PIPESTATUS[0]}
-          echo "========== POD INSTALL EXIT CODE: ${status} =========="
-          if [ "${status}" -ne 0 ]; then
+
+          # Avoid forcing a fresh CDN repo update on every CI run. The CocoaPods
+          # CDN occasionally fails with HTTP/2 framing errors on GitHub-hosted
+          # macOS runners; the normal resolver can still fetch the required specs.
+          # Retry the install once because transient CDN/network failures are
+          # common and are safe to retry before declaring the build failed.
+          install_status=1
+          for attempt in 1 2; do
+            echo "========== POD INSTALL ATTEMPT ${attempt}/2 =========="
+            if pod _1.16.2_ install --clean-install --verbose 2>&1 | tee "../pod-install-${attempt}.log"; then
+              install_status=0
+              cp "../pod-install-${attempt}.log" ../pod-install.log
+              break
+            fi
+            install_status=${PIPESTATUS[0]}
+            cp "../pod-install-${attempt}.log" ../pod-install.log
+            echo "CocoaPods install attempt ${attempt} failed with status ${install_status}."
+            if [ "${attempt}" -lt 2 ]; then
+              echo "Retrying after transient CDN/network failure..."
+              sleep 5
+            fi
+          done
+
+          echo "========== POD INSTALL EXIT CODE: ${install_status} =========="
+          if [ "${install_status}" -ne 0 ]; then
             echo "========== POD INSTALL ERROR SUMMARY =========="
-            grep -n -E "(Error|ERROR|error:|NoMethodError|undefined method|Invalid|Could not|Unable|cannot|not found|Unable to find a specification)" ../pod-install.log | tail -n 120 || true
+            grep -n -E "(Error|ERROR|error:|NoMethodError|undefined method|Invalid|Could not|Unable|cannot|not found|Unable to find a specification|HTTP2|HTTP/2|framing layer)" ../pod-install.log | tail -n 160 || true
             tail -n 300 ../pod-install.log || true
-            exit "${status}"
+            exit "${install_status}"
           fi
 
       - name: Verify Pods
@@ -184,7 +201,7 @@ jobs:
           fi
           if [ -f pod-install.log ]; then
             echo "========== POD INSTALL SUMMARY =========="
-            grep -n -E "(Error|ERROR|error:|NoMethodError|undefined method|Invalid|Could not|Unable|cannot|not found)" pod-install.log | tail -100 || true
+            grep -n -E "(Error|ERROR|error:|NoMethodError|undefined method|Invalid|Could not|Unable|cannot|not found|HTTP2|HTTP/2|framing layer)" pod-install.log | tail -100 || true
           fi
 
       - name: Upload build diagnostics
@@ -196,4 +213,6 @@ jobs:
           path: |
             xcodebuild.log
             pod-install.log
+            pod-install-1.log
+            pod-install-2.log
             ios/Podfile.lock
