@@ -50,23 +50,28 @@ target 'CoffeeLoyalty' do
       :mac_catalyst_enabled => false
     )
 
-    # React-Core 0.86.x with use_frameworks! may import inspector/devsupport
-    # headers using the public <React/...> form even though some headers live
-    # in React/Inspector. Patch the local source include to the actual source
-    # location instead of relying on an umbrella/framework header that is not
-    # generated for this static-library configuration.
-    inspector_helper = File.join(
+    # React-Core + use_frameworks! workaround.
+    # RCTBridge imports DevSupport headers directly, while this static-library
+    # configuration does not expose React's generated umbrella header map.
+    # Use source-relative imports and disable the optional inspector path.
+    react_bridge = File.join(
       Pod::Config.instance.installation_root,
-      'node_modules', 'react-native', 'React', 'DevSupport',
-      'RCTInspectorDevServerHelper.h'
+      'node_modules', 'react-native', 'React', 'Base', 'RCTBridge.mm'
     )
-    if File.file?(inspector_helper)
-      source = File.read(inspector_helper)
-      patched = source.gsub(
-        '#import <React/RCTInspectorPackagerConnection.h>',
-        '#import "../Inspector/RCTInspectorPackagerConnection.h"'
+    if File.file?(react_bridge)
+      source = File.read(react_bridge)
+
+      source = source.gsub(
+        '#import "RCTInspectorDevServerHelper.h"',
+        '#if RCT_ENABLE_INSPECTOR\n#import "../DevSupport/RCTInspectorDevServerHelper.h"\n#endif'
       )
-      File.write(inspector_helper, patched) if patched != source
+
+      source = source.gsub(
+        '#import "RCTDevLoadingViewProtocol.h"',
+        '#import "../DevSupport/RCTDevLoadingViewProtocol.h"'
+      )
+
+      File.write(react_bridge, source)
     end
 
     # RCT-Folly workaround for Xcode's incompatible optional demangle.h.
@@ -91,6 +96,17 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
 
         if target.name == 'React-Core' || target.name.start_with?('React-Core.')
+          # Inspector is not required for this CI simulator build. Explicitly
+          # disable it so RCTBridge does not compile the optional inspector
+          # dependency chain that is incompatible with this static-library
+          # React-Core integration.
+          definitions = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+          definitions = [definitions] unless definitions.is_a?(Array)
+          definitions = definitions.flatten
+          definitions << 'RCT_ENABLE_INSPECTOR=0' unless definitions.include?('RCT_ENABLE_INSPECTOR=0')
+          definitions << 'RCT_REMOTE_PROFILE=0' unless definitions.include?('RCT_REMOTE_PROFILE=0')
+          build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = definitions
+
           react_native_root = File.expand_path(
             '../node_modules/react-native/React',
             Pod::Config.instance.installation_root
