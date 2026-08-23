@@ -55,9 +55,20 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf ios/Pods
+          rm -rf ios/Podfile.lock
           rm -rf build/DerivedData
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
-          echo "Cleaned ios/Pods, build/DerivedData and Xcode DerivedData."
+          echo "Cleaned ios/Pods, ios/Podfile.lock, build/DerivedData and Xcode DerivedData."
+
+      - name: Install pinned CocoaPods
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo gem install cocoapods -v 1.16.2 --no-document
+          hash -r
+          pod_version="$(pod --version)"
+          echo "CocoaPods version: ${pod_version}"
+          test "${pod_version}" = "1.16.2"
 
       - name: Install CocoaPods dependencies
         working-directory: ios
@@ -93,6 +104,16 @@ jobs:
           test -f ios/Podfile.lock
           echo "========== PODS VERIFIED =========="
           grep -E "^(  - React-Core|  - RCT-Folly|  - Firebase|  - GoogleMaps)" ios/Podfile.lock || true
+
+      - name: Verify React-Core integration mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q 'React-Core.*framework' ios/Pods/Manifest.lock 2>/dev/null; then
+            echo "React-Core unexpectedly resolved as a framework."
+            exit 1
+          fi
+          echo "React-Core is configured as a static library."
 
       - name: Verify RCT-Folly demangle patch
         run: |
