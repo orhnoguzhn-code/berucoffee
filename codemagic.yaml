@@ -14,7 +14,22 @@ workflows:
           rm -rf node_modules
           npm install --no-audit --no-fund
           npx expo install --fix
-          rm -rf node_modules/expo-modules-jsi/apple/Products
+      - name: Patch Expo Modules JSI for Xcode 26
+        script: |
+          set -e
+          file="node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h"
+          test -f "$file"
+          # Xcode 26 rejects SWIFT_RETURNS_RETAINED on RuntimeScheduler's
+          # value-returning C++ factory functions because RuntimeScheduler is
+          # not a Swift shared-reference type. The annotation only affects
+          # Swift importer ownership metadata, so remove it for this build.
+          perl -0pi -e 's/\bSWIFT_RETURNS_RETAINED\s+//g' "$file"
+          if grep -q 'SWIFT_RETURNS_RETAINED' "$file"; then
+            echo "RuntimeScheduler Swift ownership annotation was not patched"
+            exit 1
+          fi
+          echo "Patched ExpoModulesJSI RuntimeScheduler.h"
+          sed -n '45,70p' "$file"
       - name: Clean CocoaPods workspace
         script: |
           set -e
