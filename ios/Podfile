@@ -80,6 +80,22 @@ target 'CoffeeLoyalty' do
           unless existing.include?(dev_support_flag)
             build_config.build_settings['HEADER_SEARCH_PATHS'] = "#{dev_support_flag} #{existing}"
           end
+
+          # Some CocoaPods/Xcode configurations do not propagate the modified
+          # HEADER_SEARCH_PATHS into the clang response file used by React-Core.
+          # Put only this exact directory on the compiler include flags as well.
+          dev_support_include = '-I"' + react_dev_support + '"'
+          cflags = build_config.build_settings['OTHER_CFLAGS']
+          cflags = cflags.is_a?(Array) ? cflags.join(' ') : (cflags || '$(inherited)').to_s
+          unless cflags.include?(dev_support_include)
+            build_config.build_settings['OTHER_CFLAGS'] = "#{dev_support_include} #{cflags}"
+          end
+
+          cppflags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS']
+          cppflags = cppflags.is_a?(Array) ? cppflags.join(' ') : (cppflags || '$(inherited)').to_s
+          unless cppflags.include?(dev_support_include)
+            build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{dev_support_include} #{cppflags}"
+          end
         end
       end
     end
