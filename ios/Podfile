@@ -36,13 +36,23 @@ target 'CoffeeLoyalty' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
-  # React Native 0.86 + use_frameworks! has a known header/module issue.
-  # Keep React-Core as a static library so its React headers are not treated
-  # as a framework module with an incomplete umbrella-header surface.
+  # React Native 0.86.x has a known incompatibility with use_frameworks!:
+  # React-Core's Objective-C headers can be compiled both from node_modules and
+  # from the generated React framework, producing duplicate interfaces and
+  # missing Inspector/DevSupport headers. React Native itself works correctly
+  # when React-Core is integrated as a static library, while the rest of the
+  # pods can remain static frameworks for Firebase/Expo.
+  #
+  # Do NOT use pod_target.build_type = ... here: that setter is not available
+  # in all CocoaPods versions used by CI. Defining the PodTarget method is the
+  # supported per-pod workaround and avoids the CocoaPods install-time
+  # "undefined method build_type=" failure.
   pre_install do |installer|
     installer.pod_targets.each do |pod_target|
       if pod_target.name == 'React-Core' || pod_target.name == 'React-Core.common'
-        pod_target.instance_variable_set(:@build_type, Pod::BuildType.static_library)
+        def pod_target.build_type
+          Pod::BuildType.static_library
+        end
       end
     end
   end
@@ -72,49 +82,12 @@ target 'CoffeeLoyalty' do
       File.write(folly_demangle, patched) if patched != source
     end
 
-    react_native_root = File.join(
-      Pod::Config.instance.installation_root.to_s,
-      '..',
-      'node_modules',
-      'react-native',
-      'React'
-    )
-
-    react_native_header_paths = [
-      File.join(react_native_root, 'Base'),
-      File.join(react_native_root, 'DevSupport'),
-      File.join(react_native_root, 'Inspector')
-    ]
-
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
-
-        # This CI build does not require the legacy React Native inspector.
-        # With use_frameworks! the inspector headers are not exported through
-        # React-Core's framework umbrella, which makes RCTBridge.mm fail on
-        # RCTInspectorDevServerHelper.h / RCTCxxInspectorPackagerConnection.h.
-        # Disable only the inspector/packager code paths; the React bridge,
-        # Hermes and the application remain enabled.
-        defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS']
-        defs = [defs] if defs.is_a?(String)
-        defs = [] if defs.nil?
-        defs = defs.dup
-        defs << '$(inherited)' unless defs.include?('$(inherited)')
-        defs << 'RCT_ENABLE_INSPECTOR=0' unless defs.any? { |d| d.to_s.start_with?('RCT_ENABLE_INSPECTOR=') }
-        defs << 'ENABLE_PACKAGER_CONNECTION=0' unless defs.any? { |d| d.to_s.start_with?('ENABLE_PACKAGER_CONNECTION=') }
-        defs << 'RCT_REMOTE_PROFILE=0' unless defs.any? { |d| d.to_s.start_with?('RCT_REMOTE_PROFILE=') }
-        build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
-
-        if target.name == 'React-Core' || target.name == 'React-Core.common'
-          existing = build_config.build_settings['HEADER_SEARCH_PATHS']
-          existing = [existing] if existing.is_a?(String)
-          existing = [] if existing.nil?
-          build_config.build_settings['HEADER_SEARCH_PATHS'] = existing + react_native_header_paths
-        end
       end
     end
   end
