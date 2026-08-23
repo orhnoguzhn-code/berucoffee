@@ -53,11 +53,16 @@ jobs:
 
       - name: Clean stale Pods and DerivedData
         run: |
-          rm -rf ios/Pods ios/Podfile.lock ~/Library/Developer/Xcode/DerivedData/*
+          set -e
+          rm -rf ios/Pods
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*
+          echo "Cleaned ios/Pods and Xcode DerivedData."
 
       - name: Install CocoaPods dependencies
         working-directory: ios
-        run: set -o pipefail && pod install --repo-update 2>&1 | tee ../pod-install.log
+        run: |
+          set -euo pipefail
+          pod install --repo-update --clean-install 2>&1 | tee ../pod-install.log
 
       - name: Verify RCT-Folly demangle patch
         run: |
