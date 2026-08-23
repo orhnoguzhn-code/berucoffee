@@ -61,12 +61,21 @@ target 'CoffeeLoyalty' do
       File.write(folly_demangle, patched) if patched != source
     end
 
-    # React-Core's RCTBridge.mm imports DevSupport headers by basename.
-    # Keep this narrowly scoped so React framework generated headers cannot
-    # leak into React-Core's source-header resolution.
-    react_dev_support = File.join(config[:reactNativePath].to_s, 'React', 'DevSupport')
-    dev_support_flag = '"' + react_dev_support + '"'
-    dev_support_include = '-I' + dev_support_flag
+    # RN 0.86's RCTBridge.mm uses a basename import for this header. In this
+    # project React-Core is built as a static framework and the generated
+    # framework header search setup does not reliably expose React/DevSupport.
+    # Patch only this include to a source-relative path; this is deterministic
+    # and avoids restoring the old recursive header-search-path workaround that
+    # caused duplicate React framework/source declarations.
+    react_bridge = File.join(config[:reactNativePath].to_s, 'React', 'Base', 'RCTBridge.mm')
+    if File.file?(react_bridge)
+      source = File.read(react_bridge)
+      patched = source.gsub(
+        '#import "RCTInspectorDevServerHelper.h"',
+        '#import "../DevSupport/RCTInspectorDevServerHelper.h"'
+      )
+      File.write(react_bridge, patched) if patched != source
+    end
 
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
@@ -74,20 +83,6 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
-
-        if target.name == 'React-Core.common' || target.name == 'React-Core'
-          existing = build_config.build_settings['HEADER_SEARCH_PATHS']
-          existing = existing.is_a?(Array) ? existing.join(' ') : (existing || '$(inherited)').to_s
-          build_config.build_settings['HEADER_SEARCH_PATHS'] = "#{dev_support_flag} #{existing}" unless existing.include?(dev_support_flag)
-
-          cflags = build_config.build_settings['OTHER_CFLAGS']
-          cflags = cflags.is_a?(Array) ? cflags.join(' ') : (cflags || '$(inherited)').to_s
-          build_config.build_settings['OTHER_CFLAGS'] = "#{dev_support_include} #{cflags}" unless cflags.include?(dev_support_include)
-
-          cppflags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS']
-          cppflags = cppflags.is_a?(Array) ? cppflags.join(' ') : (cppflags || '$(inherited)').to_s
-          build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{dev_support_include} #{cppflags}" unless cppflags.include?(dev_support_include)
-        end
       end
     end
   end
