@@ -11,7 +11,10 @@ workflows:
       - name: Install dependencies
         script: |
           set -e
-          npm ci
+          rm -rf node_modules
+          npm install --no-audit --no-fund
+          npx expo install --fix
+          rm -rf node_modules/expo-modules-jsi/apple/Products
       - name: Clean CocoaPods workspace
         script: |
           set -e
