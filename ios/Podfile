@@ -17,13 +17,30 @@ end
 
 platform :ios, '16.4'
 
-# React Native 0.86 uses the New Architecture. Do not disable it here.
+# React Native 0.86 + use_frameworks! can build RNFirebase as a framework module.
+# RN 0.86 has a known module/header issue where RNFirebase public headers expose
+# React typedefs (e.g. RCTPromiseRejectBlock) during module precompilation.
+# Force RNFirebase pods to static libraries to avoid that framework-module path.
+ENV['RCT_USE_PREBUILT_RNCORE'] = '1'
+ENV['RCT_USE_RN_DEP'] = '1'
+ENV['RCT_NEW_ARCH_ENABLED'] = '1'
+
 prepare_react_native_project!
 use_expo_modules!
 use_frameworks! :linkage => :static
-$RNFirebaseAsStaticFramework = true
+$RNFirebaseAsStaticFramework = false
 $FirebaseSDKVersion = '11.7.0'
 $RNMapsAsStaticFramework = true
+
+pre_install do |installer|
+  installer.pod_targets.each do |pod|
+    if pod.name.start_with?('RNFB')
+      pod.define_singleton_method(:build_type) do
+        Pod::BuildType.static_library
+      end
+    end
+  end
+end
 
 target 'CoffeeLoyalty' do
   config = use_native_modules!
