@@ -1,244 +1,215 @@
 # Resolve react_native_pods.rb with node to allow for hoisting
-    require Pod::Executable.execute_command('node', ['-p',
-    'require.resolve(
-      "react-native/scripts/react_native_pods.rb",
-      {paths: [process.argv[1]]},
-    )', __dir__]).strip
+require Pod::Executable.execute_command('node', ['-p',
+  'require.resolve(
+    "react-native/scripts/react_native_pods.rb",
+    {paths: [process.argv[1]]},
+  )', __dir__]).strip
 
-    require 'fileutils'
+require 'fileutils'
 
-    # Expo bare workflow autolinking.
-    require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
+# Expo bare workflow autolinking.
+require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
-    # Expo SDK 57's JSI date helper uses an unqualified abs() call. Xcode's C++
-    # interop exposes another abs overload, so qualify Swift's implementation before
-    # CocoaPods builds the ExpoModulesJSI xcframework.
-    expo_jsi_package = File.dirname(`node --print "require.resolve('expo-modules-jsi/package.json')"`.strip)
-    expo_jsi_date = File.join(expo_jsi_package, 'apple/Sources/ExpoModulesJSI/Coding/JavaScriptCodable+Date.swift')
-    if File.file?(expo_jsi_date)
-    source = File.read(expo_jsi_date)
-    patched = source.gsub('abs(milliseconds)', 'Swift.abs(milliseconds)')
-    File.write(expo_jsi_date, patched) if patched != source
-    end
+# Expo SDK 57's JSI date helper uses an unqualified abs() call. Xcode's C++
+# interop exposes another abs overload, so qualify Swift's implementation before
+# CocoaPods builds the ExpoModulesJSI xcframework.
+expo_jsi_package = File.dirname(`node --print "require.resolve('expo-modules-jsi/package.json')"`.strip)
+expo_jsi_date = File.join(expo_jsi_package, 'apple/Sources/ExpoModulesJSI/Coding/JavaScriptCodable+Date.swift')
+if File.file?(expo_jsi_date)
+  source = File.read(expo_jsi_date)
+  patched = source.gsub('abs(milliseconds)', 'Swift.abs(milliseconds)')
+  File.write(expo_jsi_date, patched) if patched != source
+end
 
-    platform :ios, '16.4'
-    ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
-    ENV['RCT_USE_RN_DEP'] = '0'
-    prepare_react_native_project!
-    use_expo_modules!
+platform :ios, '16.4'
+ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
+ENV['RCT_USE_RN_DEP'] = '0'
+prepare_react_native_project!
+use_expo_modules!
 
-    # Firebase + RNFB works reliably with static frameworks in this project.
-    use_frameworks! :linkage => :static
-    $RNFirebaseAsStaticFramework = true
-    $FirebaseSDKVersion = '11.7.0'
-    $RNMapsAsStaticFramework = true
+use_frameworks! :linkage => :static
+$RNFirebaseAsStaticFramework = true
+$FirebaseSDKVersion = '11.7.0'
+$RNMapsAsStaticFramework = true
+ENV['RCT_NEW_ARCH_ENABLED'] = '0'
 
-    # RN 0.86 + Expo 57 currently fails simulator compilation with the new architecture.
-    ENV['RCT_NEW_ARCH_ENABLED'] = '0'
+target 'CoffeeLoyalty' do
+  config = use_native_modules!
 
-    target 'CoffeeLoyalty' do
-    config = use_native_modules!
+  use_react_native!(
+    :path => config[:reactNativePath],
+    :new_arch_enabled => false,
+    :app_path => "#{Pod::Config.instance.installation_root}/.."
+  )
 
-    use_react_native!(
-      :path => config[:reactNativePath],
-      :new_arch_enabled => false,
-      :app_path => "#{Pod::Config.instance.installation_root}/.."
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false
     )
 
-    post_install do |installer|
-      react_native_post_install(
-        installer,
-        config[:reactNativePath],
-        :mac_catalyst_enabled => false
+    # RCT-Folly's Demangle.cpp conditionally includes <demangle.h>. On the
+    # Xcode/Apple toolchain used by CI, a demangle.h can be found without the
+    # complete libiberty callback API, producing errors for demangle_callbackref,
+    # cplus_demangle_v3_callback and DMGL_* symbols. Folly already has a cxxabi
+    # fallback, so disable only the optional libiberty section at pod-install time.
+    folly_demangle = File.join(
+      Pod::Config.instance.sandbox_root.to_s,
+      'RCT-Folly',
+      'folly',
+      'Demangle.cpp'
+    )
+    if File.file?(folly_demangle)
+      source = File.read(folly_demangle)
+      patched = source.gsub(
+        '#if __has_include(<demangle.h>)',
+        '#if false && __has_include(<demangle.h>)'
       )
+      File.write(folly_demangle, patched) if patched != source
+    end
 
-      # RN 0.86 source build loses React/DevSupport (RCTDevLoadingViewProtocol.h),
-      # React/Inspector and third-party header search paths under use_frameworks!.
-      # Restore them with absolute paths resolved at pod-install time.
-      rn_abs = ENV['REACT_NATIVE_PATH'] || File.expand_path('../node_modules/react-native', __dir__)
-      rn_abs = File.realpath(rn_abs) if File.exist?(rn_abs)
-      sandbox_abs = Pod::Config.instance.sandbox_root.to_s
+    rn_abs = ENV['REACT_NATIVE_PATH'] || File.expand_path('../node_modules/react-native', __dir__)
+    rn_abs = File.realpath(rn_abs) if File.exist?(rn_abs)
+    sandbox_abs = Pod::Config.instance.sandbox_root.to_s
 
-      # Map pod target name -> PodTarget so each target can read its own real
-      # header layout (spec readers and file_accessor are unreliable in
-      # post_install; the on-disk layout is the source of truth).
-      pod_target_map = {}
-      installer.pod_targets.each do |pt|
-        pod_target_map[pt.name] = pt
-      end
+    pod_target_map = {}
+    installer.pod_targets.each do |pt|
+      pod_target_map[pt.name] = pt
+    end
 
-      installer.pods_project.targets.each do |target|
-        target.build_configurations.each do |build_config|
-          build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
-          build_config.build_settings['SWIFT_VERSION'] = '5.0'
-          build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-          # Xcode 16 explicit module PCM generation can fail for GTMSessionFetcher.
-          build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
-          build_config.build_settings['USE_HEADERMAP'] = 'NO'
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |build_config|
+        build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
+        build_config.build_settings['SWIFT_VERSION'] = '5.0'
+        build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+        build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+        build_config.build_settings['USE_HEADERMAP'] = 'NO'
 
-          # Source third-party pods (fmt, glog, RCT-Folly, ...) lose their own
-          # include dirs under use_frameworks!; e.g. fmt/src/format.cc cannot
-          # find "fmt/format-inl.h" because no -I points at Pods/fmt/include.
-          # Collect the srcroot, header_mappings_dir and every walked header
-          # dir (plus parents, for prefixed includes) of the pod and its
-          # transitive dependencies.
-          unless target.name.start_with?('Pods-')
-            pt = pod_target_map[target.name]
-            dirs = ['$(PODS_TARGET_SRCROOT)']
-            if pt
-              sp = pt.respond_to?(:podspec) ? pt.podspec : nil
-              if sp && sp.respond_to?(:header_mappings_dir)
-                hmd = sp.header_mappings_dir
-                dirs << "$(PODS_TARGET_SRCROOT)/#{hmd}" if hmd && !hmd.to_s.empty?
-              end
-              # Never inject a dir that shadows the C standard library
-              # (folly/portability ships lowercase stdio.h/stdlib.h shims
-              # that break libc++'s #include_next).
-              shadow_dirs = %w[stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h]
-              hdr_targets = [pt]
-              hdr_targets += pt.recursive_dependent_targets if pt.respond_to?(:recursive_dependent_targets)
-              hdr_targets.each do |ptc|
-                pod_root = File.join(sandbox_abs, ptc.name)
-                next unless File.directory?(pod_root)
-                Dir.glob(File.join(pod_root, '**', '*.h')).each do |f|
-                  d = File.dirname(f)
-                  next if dirs.include?(d)
-                  next if shadow_dirs.any? { |h| File.exist?(File.join(d, h)) }
-                  dirs << d
-                  parent = File.dirname(d)
-                  dirs << parent unless dirs.include?(parent) || shadow_dirs.any? { |h| File.exist?(File.join(parent, h)) }
-                end
+        unless target.name.start_with?('Pods-')
+          pt = pod_target_map[target.name]
+          dirs = ['$(PODS_TARGET_SRCROOT)']
+          if pt
+            sp = pt.respond_to?(:podspec) ? pt.podspec : nil
+            if sp && sp.respond_to?(:header_mappings_dir)
+              hmd = sp.header_mappings_dir
+              dirs << "$(PODS_TARGET_SRCROOT)/#{hmd}" if hmd && !hmd.to_s.empty?
+            end
+            shadow_dirs = %w[stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h]
+            hdr_targets = [pt]
+            hdr_targets += pt.recursive_dependent_targets if pt.respond_to?(:recursive_dependent_targets)
+            hdr_targets.each do |ptc|
+              pod_root = File.join(sandbox_abs, ptc.name)
+              next unless File.directory?(pod_root)
+              Dir.glob(File.join(pod_root, '**', '*.h')).each do |f|
+                d = File.dirname(f)
+                next if dirs.include?(d)
+                next if shadow_dirs.any? { |h| File.exist?(File.join(d, h)) }
+                dirs << d
+                parent = File.dirname(d)
+                dirs << parent unless dirs.include?(parent) || shadow_dirs.any? { |h| File.exist?(File.join(parent, h)) }
               end
             end
-            # Xcode emits HEADER_SEARCH_PATHS -I flags and the -F framework
-            # search path BEFORE anything injected via OTHER_CFLAGS, so a
-            # -I added there can never win: #import <SocketRocket/SRWebSocket.h>
-            # keeps resolving to the built framework's Headers COPY while the
-            # quoted import resolves to the source copy -> redefinitions in
-            # guard-less headers. PREPEND the source dirs to
-            # HEADER_SEARCH_PATHS (they become the first -I flags, ahead of
-            # -F) so both import styles load the same physical source file.
+          end
+          hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
+          hsp = hsp.is_a?(String) ? hsp : (hsp.is_a?(Array) ? hsp.join(' ') : '$(inherited)')
+          quoted = dirs.map { |d| "\"#{d}\"" }.join(' ')
+          build_config.build_settings['HEADER_SEARCH_PATHS'] = "#{quoted} #{hsp}"
+          inc_flags = dirs.map { |d| "-I\"#{d}\"" }.join(' ')
+          flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
+          build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{flags} #{inc_flags}"
+          cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
+          build_config.build_settings['OTHER_CFLAGS'] = "#{cflags} #{inc_flags}"
+
+          if target.name == 'SocketRocket'
+            build_config.build_settings['FRAMEWORK_SEARCH_PATHS'] = '$(inherited)'
+            build_config.build_settings['OTHER_CFLAGS'] = (build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)').gsub(/-F"[^"]*SocketRocket[^"]*"/, '')
+            build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = (build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)').gsub(/-F"[^"]*SocketRocket[^"]*"/, '')
+            build_config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
+            build_config.build_settings['DEFINES_MODULE'] = 'NO'
+          end
+
+          if target.name == 'GTMSessionFetcher'
+            build_config.build_settings['FRAMEWORK_SEARCH_PATHS'] = '$(inherited)'
+            build_config.build_settings['OTHER_CFLAGS'] = (build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)').gsub(/-F"[^"]*GTMSessionFetcher[^"]*"/, '')
+            build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = (build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)').gsub(/-F"[^"]*GTMSessionFetcher[^"]*"/, '')
             hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
-            hsp = hsp.is_a?(String) ? hsp : (hsp.is_a?(Array) ? hsp.join(' ') : '$(inherited)')
-            quoted = dirs.map { |d| "\"#{d}\"" }.join(' ')
-            build_config.build_settings['HEADER_SEARCH_PATHS'] = "#{quoted} #{hsp}"
-            inc_flags = dirs.map { |d| "-I\"#{d}\"" }.join(' ')
-            flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
-            build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{flags} #{inc_flags}"
-            cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
-            build_config.build_settings['OTHER_CFLAGS'] = "#{cflags} #{inc_flags}"
-
-            # Fix SocketRocket header redefinition: ensure framework headers are not
-            # included when building the pod itself. Only use source headers.
-            if target.name == 'SocketRocket'
-              build_config.build_settings['FRAMEWORK_SEARCH_PATHS'] = '$(inherited)'
-              # Also remove the built framework from the search paths
-              build_config.build_settings['OTHER_CFLAGS'] = (build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)').gsub(/-F"[^"]*SocketRocket[^"]*"/, '')
-              build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = (build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)').gsub(/-F"[^"]*SocketRocket[^"]*"/, '')
-              # Disable modular headers to prevent framework header inclusion
-              build_config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
-              build_config.build_settings['DEFINES_MODULE'] = 'NO'
+            if hsp
+              hsp = hsp.gsub(/"[^"]*GTMSessionFetcher[^"]*"/, '').gsub(/\s+/, ' ').strip
+              build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp
             end
-
-            # Fix GTMSessionFetcher header redefinition: ensure framework headers are not
-            # included when building the pod itself. Keep modules enabled for Swift imports
-            # but remove framework search paths and source headers to prevent duplicate definitions.
-            if target.name == 'GTMSessionFetcher'
-              build_config.build_settings['FRAMEWORK_SEARCH_PATHS'] = '$(inherited)'
-              # Also remove the built framework from the search paths
-              build_config.build_settings['OTHER_CFLAGS'] = (build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)').gsub(/-F"[^"]*GTMSessionFetcher[^"]*"/, '')
-              build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = (build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)').gsub(/-F"[^"]*GTMSessionFetcher[^"]*"/, '')
-              # Remove GTMSessionFetcher source headers from HEADER_SEARCH_PATHS
-              hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
-              if hsp
-                hsp = hsp.gsub(/"[^"]*GTMSessionFetcher[^"]*"/, '').gsub(/\s+/, ' ').strip
-                build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp
-              end
-              # Also remove from OTHER_CFLAGS and OTHER_CPLUSPLUSFLAGS
-              cflags = build_config.build_settings['OTHER_CFLAGS']
-              if cflags
-                cflags = cflags.gsub(/-I"[^"]*GTMSessionFetcher[^"]*"/, '').gsub(/\s+/, ' ').strip
-                build_config.build_settings['OTHER_CFLAGS'] = cflags
-              end
-              cppflags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS']
-              if cppflags
-                cppflags = cppflags.gsub(/-I"[^"]*GTMSessionFetcher[^"]*"/, '').gsub(/\s+/, ' ').strip
-                build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = cppflags
-              end
-              # Keep modules enabled so Swift imports work correctly
-              build_config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
-              build_config.build_settings['DEFINES_MODULE'] = 'YES'
+            cflags = build_config.build_settings['OTHER_CFLAGS']
+            if cflags
+              cflags = cflags.gsub(/-I"[^"]*GTMSessionFetcher[^"]*"/, '').gsub(/\s+/, ' ').strip
+              build_config.build_settings['OTHER_CFLAGS'] = cflags
             end
-
-            # Fix Firebase header redefinition: FirebaseInstallations and other Firebase pods
-            # include FirebaseCore headers from both source and framework, causing duplicate
-            # interface definitions. Remove FirebaseCore source headers from HEADER_SEARCH_PATHS
-            # to prevent vendored FirebaseCore headers from being used. Keep modules enabled
-            # so @import FirebaseCore works correctly with framework headers only.
-            if target.name.start_with?('Firebase') && target.name != 'FirebaseCore'
-              # Remove FirebaseCore source headers from HEADER_SEARCH_PATHS
-              hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
-              if hsp
-                hsp = hsp.gsub(/"[^"]*FirebaseCore[^"]*"/, '').gsub(/\s+/, ' ').strip
-                build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp
-              end
-              # Also remove from OTHER_CFLAGS and OTHER_CPLUSPLUSFLAGS
-              cflags = build_config.build_settings['OTHER_CFLAGS']
-              if cflags
-                cflags = cflags.gsub(/-I"[^"]*FirebaseCore[^"]*"/, '').gsub(/\s+/, ' ').strip
-                build_config.build_settings['OTHER_CFLAGS'] = cflags
-              end
-              cppflags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS']
-              if cppflags
-                cppflags = cppflags.gsub(/-I"[^"]*FirebaseCore[^"]*"/, '').gsub(/\s+/, ' ').strip
-                build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = cppflags
-              end
+            cppflags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS']
+            if cppflags
+              cppflags = cppflags.gsub(/-I"[^"]*GTMSessionFetcher[^"]*"/, '').gsub(/\s+/, ' ').strip
+              build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = cppflags
             end
+            build_config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+            build_config.build_settings['DEFINES_MODULE'] = 'YES'
           end
 
-          # Disable Inspector to avoid missing RCTInspectorDevServerHelper.h in Expo 57
-          if target.name.include?('React')
-            defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || []
-            defs = defs.is_a?(String) ? defs.split(' ') : [defs].flatten
-            defs = defs.map(&:to_s).reject { |d| d.start_with?('RCT_ENABLE_INSPECTOR') }
-            defs << 'RCT_ENABLE_INSPECTOR=0'
-            build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+          if target.name.start_with?('Firebase') && target.name != 'FirebaseCore'
+            hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
+            if hsp
+              hsp = hsp.gsub(/"[^"]*FirebaseCore[^"]*"/, '').gsub(/\s+/, ' ').strip
+              build_config.build_settings['HEADER_SEARCH_PATHS'] = hsp
+            end
+            cflags = build_config.build_settings['OTHER_CFLAGS']
+            if cflags
+              cflags = cflags.gsub(/-I"[^"]*FirebaseCore[^"]*"/, '').gsub(/\s+/, ' ').strip
+              build_config.build_settings['OTHER_CFLAGS'] = cflags
+            end
+            cppflags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS']
+            if cppflags
+              cppflags = cppflags.gsub(/-I"[^"]*FirebaseCore[^"]*"/, '').gsub(/\s+/, ' ').strip
+              build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = cppflags
+            end
           end
+        end
 
-          # Restore RN header search paths for every React-* target so files
-          # like RCTDevLoadingViewProtocol.h (React/DevSupport) resolve.
-          if target.name.start_with?('React-') || target.name == 'ReactCommon' ||
-             target.name == 'RNReanimated' || target.name == 'RNWorklets'
-            abs_paths = [
-              "#{rn_abs}/React/DevSupport",
-              "#{rn_abs}/React/Inspector",
-              "#{rn_abs}/React",
-              "#{rn_abs}/ReactCommon",
-              "#{rn_abs}/ReactCommon/react/nativemodule/core",
-              "#{rn_abs}/ReactCommon/callinvoker",
-              "#{rn_abs}/ReactCommon/runtime",
-              "#{rn_abs}/ReactCommon/jsitooling",
-              File.join(sandbox_abs, 'glog'),
-              File.join(sandbox_abs, 'boost'),
-              File.join(sandbox_abs, 'DoubleConversion'),
-              File.join(sandbox_abs, 'fast_float', 'include'),
-              File.join(sandbox_abs, 'fmt', 'include'),
-              File.join(sandbox_abs, 'SocketRocket'),
-              File.join(sandbox_abs, 'RCT-Folly'),
-              File.join(sandbox_abs, 'Headers', 'Public', 'ReactCommon')
-            ]
-            hsp = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
-            quoted = abs_paths.map { |p| "\"#{p}\"" }.join(' ')
-            build_config.build_settings['HEADER_SEARCH_PATHS'] = "#{quoted} #{hsp}"
-            # Belt and suspenders: same paths on the clang command line.
-            flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
-            build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] =
-              "#{flags} #{abs_paths.map { |p| "-I\"#{p}\"" }.join(' ')}"
-            cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
-            build_config.build_settings['OTHER_CFLAGS'] =
-              "#{cflags} #{abs_paths.map { |p| "-I\"#{p}\"" }.join(' ')}"
-          end
+        if target.name.include?('React')
+          defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || []
+          defs = defs.is_a?(String) ? defs.split(' ') : [defs].flatten
+          defs = defs.map(&:to_s).reject { |d| d.start_with?('RCT_ENABLE_INSPECTOR') }
+          defs << 'RCT_ENABLE_INSPECTOR=0'
+          build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+        end
+
+        if target.name.start_with?('React-') || target.name == 'ReactCommon' ||
+           target.name == 'RNReanimated' || target.name == 'RNWorklets'
+          abs_paths = [
+            "#{rn_abs}/React/DevSupport",
+            "#{rn_abs}/React/Inspector",
+            "#{rn_abs}/React",
+            "#{rn_abs}/ReactCommon",
+            "#{rn_abs}/ReactCommon/react/nativemodule/core",
+            "#{rn_abs}/ReactCommon/callinvoker",
+            "#{rn_abs}/ReactCommon/runtime",
+            "#{rn_abs}/ReactCommon/jsitooling",
+            File.join(sandbox_abs, 'glog'),
+            File.join(sandbox_abs, 'boost'),
+            File.join(sandbox_abs, 'DoubleConversion'),
+            File.join(sandbox_abs, 'fast_float', 'include'),
+            File.join(sandbox_abs, 'fmt', 'include'),
+            File.join(sandbox_abs, 'SocketRocket'),
+            File.join(sandbox_abs, 'RCT-Folly'),
+            File.join(sandbox_abs, 'Headers', 'Public', 'ReactCommon')
+          ]
+          hsp = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
+          quoted = abs_paths.map { |p| "\"#{p}\"" }.join(' ')
+          build_config.build_settings['HEADER_SEARCH_PATHS'] = "#{quoted} #{hsp}"
+          flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
+          build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] =
+            "#{flags} #{abs_paths.map { |p| "-I\"#{p}\"" }.join(' ')}"
+          cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
+          build_config.build_settings['OTHER_CFLAGS'] =
+            "#{cflags} #{abs_paths.map { |p| "-I\"#{p}\"" }.join(' ')}"
         end
       end
     end
-    end
+  end
+end
