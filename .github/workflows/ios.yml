@@ -10,7 +10,8 @@ on:
 jobs:
   build-and-test:
     name: Build CoffeeLoyalty
-    runs-on: macos-15
+    # Expo SDK 57 requires Xcode 26.4+; macos-26 ships Xcode 26.4.1+.
+    runs-on: macos-26
 
     steps:
       - name: Check out repository
@@ -26,14 +27,14 @@ jobs:
         run: |
           set -euo pipefail
           DEVELOPER_DIR=""
-          for candidate in /Applications/Xcode_26.6.app /Applications/Xcode_26.4.app /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app; do
+          for candidate in /Applications/Xcode_26.6.app /Applications/Xcode_26.5.app /Applications/Xcode_26.4.1.app /Applications/Xcode_26.4.app; do
             if [ -d "$candidate" ]; then
               DEVELOPER_DIR="$candidate"
               break
             fi
           done
           if [ -z "$DEVELOPER_DIR" ]; then
-            echo "No Xcode 26.x installation was found on this runner."
+            echo "No Xcode 26.4+ installation was found on this runner."
             ls -d /Applications/Xcode*.app 2>/dev/null || true
             exit 1
           fi
@@ -45,10 +46,9 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf node_modules
-          npm install --no-audit --no-fund
-          npx expo install --fix -- --no-audit --no-fund
-          echo "Expo dependency tree after alignment:"
-          npm ls expo expo-modules-jsi expo-modules-core --depth=0 || true
+          npm ci --no-audit --no-fund
+          echo "Locked Expo dependency tree:"
+          npm ls expo expo-modules-jsi expo-modules-core react-native --depth=0 || true
 
       - name: Patch React Native legacy imports before CocoaPods
         shell: bash
@@ -60,19 +60,15 @@ jobs:
           perl -0pi -e 's/#import "RCTDevLoadingViewProtocol\.h"/#import "..\/DevSupport\/RCTDevLoadingViewProtocol.h"/g' "$base"
           grep -n -E 'RCTInspectorDevServerHelper|RCTDevLoadingViewProtocol' "$base"
 
-      - name: Verify Expo JSI uses its native Swift toolchain
+      - name: Verify Expo JSI compatibility patch
         shell: bash
         run: |
           set -euo pipefail
-          pkg="node_modules/expo-modules-jsi/apple/Package.swift"
-          test -f "$pkg"
-          head -n 3 "$pkg"
-          if grep -q 'swift-tools-version: 6.1' "$pkg"; then
-            echo "Expo JSI is incorrectly pinned to Swift 6.1; removing the incompatible override."
-            sed -i '' '1{/swift-tools-version: 6.1/s/6.1/6.2/}' "$pkg"
+          scheduler="node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h"
+          test -f "$scheduler"
+          if grep -q 'SWIFT_RETURNS_RETAINED\|SWIFT_RETURNS_UNRETAINED' "$scheduler"; then
+            echo "RuntimeScheduler ownership annotations are still present; Podfile will patch them before pod integration."
           fi
-          grep -q 'swift-tools-version: 6.2' "$pkg" || { echo "Unexpected Expo JSI Swift tools version:"; head -n 3 "$pkg"; exit 1; }
-          echo "Expo JSI Swift tools version: 6.2"
 
       - name: Clean stale Pods and DerivedData
         run: |
@@ -149,6 +145,17 @@ jobs:
           grep -q '#import "../DevSupport/RCTInspectorDevServerHelper.h"' "$file"
           echo "RCTBridge DevSupport imports are patched before Xcode build."
 
+      - name: Verify Expo JSI patch was applied
+        shell: bash
+        run: |
+          set -euo pipefail
+          scheduler="node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h"
+          if grep -q 'SWIFT_RETURNS_RETAINED\|SWIFT_RETURNS_UNRETAINED' "$scheduler"; then
+            echo "RuntimeScheduler ownership annotations remain after Podfile patch."
+            exit 1
+          fi
+          echo "ExpoModulesJSI RuntimeScheduler annotations removed."
+
       - name: Verify Pods
         shell: bash
         run: |
@@ -171,7 +178,10 @@ jobs:
         id: simulator
         run: |
           set -e
-          device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 16/ {print $1; exit}' | xargs)
+          device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 17/ {print $1; exit}' | xargs)
+          if [ -z "$device" ]; then
+            device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 16/ {print $1; exit}' | xargs)
+          fi
           if [ -z "$device" ]; then
             device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $1; exit}' | xargs)
           fi
