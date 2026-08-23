@@ -38,6 +38,16 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
+      - name: Patch React Native legacy imports before CocoaPods
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="node_modules/react-native/React/Base/RCTBridge.mm"
+          test -f "$base"
+          perl -0pi -e 's/#import "RCTInspectorDevServerHelper\.h"/#if RCT_ENABLE_INSPECTOR\n#import "..\/DevSupport\/RCTInspectorDevServerHelper.h"\n#endif/g' "$base"
+          perl -0pi -e 's/#import "RCTDevLoadingViewProtocol\.h"/#import "..\/DevSupport\/RCTDevLoadingViewProtocol.h"/g' "$base"
+          grep -n -E 'RCTInspectorDevServerHelper|RCTDevLoadingViewProtocol' "$base"
+
       - name: Align Expo JSI Swift tools version
         run: |
           set -e
@@ -89,14 +99,8 @@ jobs:
           npm --version
           xcodebuild -version
           echo "========== PODFILE =========="
-          sed -n '1,280p' Podfile
+          sed -n '1,320p' Podfile
           echo "========== POD INSTALL =========="
-
-          # Avoid forcing a fresh CDN repo update on every CI run. The CocoaPods
-          # CDN occasionally fails with HTTP/2 framing errors on GitHub-hosted
-          # macOS runners; the normal resolver can still fetch the required specs.
-          # Retry the install once because transient CDN/network failures are
-          # common and are safe to retry before declaring the build failed.
           install_status=1
           for attempt in 1 2; do
             echo "========== POD INSTALL ATTEMPT ${attempt}/2 =========="
@@ -121,6 +125,15 @@ jobs:
             tail -n 300 ../pod-install.log || true
             exit "${install_status}"
           fi
+
+      - name: Verify React Native source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="node_modules/react-native/React/Base/RCTBridge.mm"
+          grep -q '#import "../DevSupport/RCTDevLoadingViewProtocol.h"' "$file"
+          grep -q '#import "../DevSupport/RCTInspectorDevServerHelper.h"' "$file"
+          echo "RCTBridge DevSupport imports are patched before Xcode build."
 
       - name: Verify Pods
         shell: bash
