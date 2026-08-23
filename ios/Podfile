@@ -73,9 +73,23 @@ target 'CoffeeLoyalty' do
       File.write(folly_demangle, patched) if patched != source
     end
 
-    # Do not patch React Native source imports. RN 0.86's Inspector headers
-    # are internally consistent; the failure was caused by React-Core being
-    # compiled as a framework module under use_frameworks!.
+    # React Native 0.86 compiles RCTBridge.mm and Inspector sources in the
+    # React-Core target. With use_frameworks!, the generated target may not
+    # inherit the source-tree header search paths, so quoted imports such as
+    # RCTInspectorDevServerHelper.h cannot be resolved. Add the two RN source
+    # directories explicitly; this keeps RN source unchanged and fixes the
+    # target that is actually compiling the files.
+    react_native_root = File.join(
+      Pod::Config.instance.installation_root.to_s,
+      '..',
+      'node_modules',
+      'react-native',
+      'React'
+    )
+    react_native_header_paths = [
+      File.join(react_native_root, 'DevSupport'),
+      File.join(react_native_root, 'Inspector')
+    ]
 
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
@@ -83,6 +97,13 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+
+        if target.name == 'React-Core' || target.name == 'React-Core.common'
+          existing = build_config.build_settings['HEADER_SEARCH_PATHS']
+          existing = [existing] if existing.is_a?(String)
+          existing = [] if existing.nil?
+          build_config.build_settings['HEADER_SEARCH_PATHS'] = existing + react_native_header_paths
+        end
       end
     end
   end
