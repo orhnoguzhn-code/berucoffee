@@ -72,6 +72,37 @@ target 'CoffeeLoyalty' do
       File.write(folly_demangle, patched) if patched != source
     end
 
+    # React-Core is built as a static library while the Podfile uses static
+    # frameworks. In this combination CocoaPods can generate React-Core.common
+    # compile settings that do not resolve React Native's DevSupport headers.
+    # RCTBridge.mm uses quoted imports, so make those two imports deterministic
+    # by converting them to paths relative to React/Base. This avoids depending
+    # on generated framework header maps or HEADER_SEARCH_PATHS merging.
+    react_native_root = File.expand_path(
+      '../node_modules/react-native/React',
+      Pod::Config.instance.installation_root
+    )
+    bridge_file = File.join(react_native_root, 'Base', 'RCTBridge.mm')
+    inspector_header = File.join(react_native_root, 'DevSupport', 'RCTInspectorDevServerHelper.h')
+    loading_header = File.join(react_native_root, 'DevSupport', 'RCTDevLoadingViewProtocol.h')
+
+    if File.file?(bridge_file)
+      source = File.read(bridge_file)
+      patched = source
+        .gsub('#import "RCTInspectorDevServerHelper.h"', '#import "../DevSupport/RCTInspectorDevServerHelper.h"')
+        .gsub('#import "RCTDevLoadingViewProtocol.h"', '#import "../DevSupport/RCTDevLoadingViewProtocol.h"')
+      File.write(bridge_file, patched) if patched != source
+    else
+      raise "React Native RCTBridge.mm not found: #{bridge_file}"
+    end
+
+    unless File.file?(inspector_header)
+      raise "React Native header not found: #{inspector_header}"
+    end
+    unless File.file?(loading_header)
+      raise "React Native header not found: #{loading_header}"
+    end
+
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
@@ -80,13 +111,6 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
 
         if target.name == 'React-Core' || target.name.start_with?('React-Core.')
-          # React-Core is built as a static library. Add all React Native
-          # source directories that contain headers imported by React-Core.
-          # This avoids fixing DevSupport headers one at a time.
-          react_native_root = File.expand_path(
-            '../node_modules/react-native/React',
-            Pod::Config.instance.installation_root
-          )
           react_header_dirs = [
             react_native_root,
             File.join(react_native_root, 'Base'),
