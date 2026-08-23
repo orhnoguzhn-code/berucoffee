@@ -39,10 +39,6 @@ target 'CoffeeLoyalty' do
   # React Native 0.86.x + use_frameworks! can make React-Core headers visible
   # both from node_modules and from a generated React framework. Keep
   # React-Core as a static library while Firebase/Expo remain static frameworks.
-  #
-  # CocoaPods 1.16.2 exposes Pod::BuildType but PodTarget does not provide a
-  # public build_type= writer. Set the supported internal value directly instead
-  # of calling the unavailable setter (which caused `undefined method build_type=`).
   pre_install do |installer|
     installer.pod_targets.each do |pod_target|
       if pod_target.name == 'React-Core' || pod_target.name.start_with?('React-Core.')
@@ -83,12 +79,22 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
 
-        # RCTBridge.mm imports RCTInspectorDevServerHelper.h by filename.
-        # When React-Core is forced back to a static library while the rest of
-        # the project uses static frameworks, CocoaPods can omit React/DevSupport
-        # from the React-Core.common header search paths. Add the React Native
-        # DevSupport directory explicitly so the header resolves consistently.
         if target.name == 'React-Core' || target.name.start_with?('React-Core.')
+          # RCTBridge conditionally imports RCTInspectorDevServerHelper when
+          # the inspector is enabled. With React-Core forced to a static library
+          # under use_frameworks!, CocoaPods' generated header/module map can
+          # omit the DevSupport headers. The app does not need the remote
+          # inspector for this CI build, so explicitly disable that optional
+          # code path instead of relying on a fragile header search path.
+          definitions = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+          definitions = [definitions] unless definitions.is_a?(Array)
+          definitions = definitions.flatten
+          definitions << 'RCT_ENABLE_INSPECTOR=0' unless definitions.include?('RCT_ENABLE_INSPECTOR=0')
+          definitions << 'RCT_REMOTE_PROFILE=0' unless definitions.include?('RCT_REMOTE_PROFILE=0')
+          build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = definitions
+
+          # Keep the DevSupport directory available for other RN development
+          # headers that are still compiled by React-Core.
           devsupport_path = File.expand_path(
             '../node_modules/react-native/React/DevSupport',
             Pod::Config.instance.installation_root
