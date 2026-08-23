@@ -37,9 +37,8 @@ target 'CoffeeLoyalty' do
   )
 
   # React Native 0.86 + use_frameworks! has a known header/module issue.
-  # React-Core must be generated as a static library instead of a static
-  # framework. Older CocoaPods versions expose PodTarget#build_type only as
-  # a reader, so mutate the backing value rather than calling build_type=.
+  # Keep React-Core as a static library so its React headers are not treated
+  # as a framework module with an incomplete umbrella-header surface.
   pre_install do |installer|
     installer.pod_targets.each do |pod_target|
       if pod_target.name == 'React-Core' || pod_target.name == 'React-Core.common'
@@ -73,12 +72,6 @@ target 'CoffeeLoyalty' do
       File.write(folly_demangle, patched) if patched != source
     end
 
-    # React Native 0.86 + use_frameworks! can leave React-Core compiling
-    # source files with quoted imports that point to sibling source folders.
-    # HEADER_SEARCH_PATHS is not consistently propagated to React-Core.common
-    # on all CocoaPods/Xcode combinations, so make these imports unambiguous
-    # by resolving them relative to RCTBridge.mm itself. This does not modify
-    # the package permanently; CI starts from a fresh node_modules tree.
     react_native_root = File.join(
       Pod::Config.instance.installation_root.to_s,
       '..',
@@ -86,24 +79,7 @@ target 'CoffeeLoyalty' do
       'react-native',
       'React'
     )
-    bridge_file = File.join(react_native_root, 'Base', 'RCTBridge.mm')
-    if File.file?(bridge_file)
-      source = File.read(bridge_file)
-      replacements = {
-        '#import "RCTInspectorDevServerHelper.h"' => '#import "../DevSupport/RCTInspectorDevServerHelper.h"',
-        '#import "RCTDevLoadingViewProtocol.h"' => '#import "../DevSupport/RCTDevLoadingViewProtocol.h"',
-        '#import "RCTInspectorNetworkHelper.h"' => '#import "../Inspector/RCTInspectorNetworkHelper.h"',
-        '#import "RCTInspectorUtils.h"' => '#import "../Inspector/RCTInspectorUtils.h"',
-        '#import "RCTPausedInDebuggerOverlayController.h"' => '#import "../DevSupport/RCTPausedInDebuggerOverlayController.h"'
-      }
-      patched = source.dup
-      replacements.each { |from, to| patched = patched.gsub(from, to) }
-      File.write(bridge_file, patched) if patched != source
-    end
 
-    # RCTInspectorDevServerHelper.h itself already uses a relative import for
-    # the Inspector headers, so it remains independent of Xcode header paths.
-    # Keep these paths as a fallback for other React-Core source files.
     react_native_header_paths = [
       File.join(react_native_root, 'Base'),
       File.join(react_native_root, 'DevSupport'),
@@ -116,6 +92,22 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+
+        # This CI build does not require the legacy React Native inspector.
+        # With use_frameworks! the inspector headers are not exported through
+        # React-Core's framework umbrella, which makes RCTBridge.mm fail on
+        # RCTInspectorDevServerHelper.h / RCTCxxInspectorPackagerConnection.h.
+        # Disable only the inspector/packager code paths; the React bridge,
+        # Hermes and the application remain enabled.
+        defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS']
+        defs = [defs] if defs.is_a?(String)
+        defs = [] if defs.nil?
+        defs = defs.dup
+        defs << '$(inherited)' unless defs.include?('$(inherited)')
+        defs << 'RCT_ENABLE_INSPECTOR=0' unless defs.any? { |d| d.to_s.start_with?('RCT_ENABLE_INSPECTOR=') }
+        defs << 'ENABLE_PACKAGER_CONNECTION=0' unless defs.any? { |d| d.to_s.start_with?('ENABLE_PACKAGER_CONNECTION=') }
+        defs << 'RCT_REMOTE_PROFILE=0' unless defs.any? { |d| d.to_s.start_with?('RCT_REMOTE_PROFILE=') }
+        build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
 
         if target.name == 'React-Core' || target.name == 'React-Core.common'
           existing = build_config.build_settings['HEADER_SEARCH_PATHS']
