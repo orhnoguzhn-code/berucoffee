@@ -36,16 +36,14 @@ target 'CoffeeLoyalty' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
-  # React Native 0.86 has a known incompatibility between its React-Core
-  # framework-module headers and use_frameworks!. In particular, <React/...>
-  # imports from React's public headers resolve through CocoaPods' flat header
-  # farm rather than the framework module. Building React-Core as a static
-  # library avoids the module boundary entirely and is the upstream-reported
-  # working configuration for RN 0.86 + use_frameworks!.
+  # React Native 0.86 + use_frameworks! has a known header/module issue.
+  # React-Core must be generated as a static library instead of a static
+  # framework. Older CocoaPods versions expose PodTarget#build_type only as
+  # a reader, so mutate the backing value rather than calling build_type=.
   pre_install do |installer|
     installer.pod_targets.each do |pod_target|
       if pod_target.name == 'React-Core' || pod_target.name == 'React-Core.common'
-        pod_target.build_type = Pod::BuildType.static_library
+        pod_target.instance_variable_set(:@build_type, Pod::BuildType.static_library)
       end
     end
   end
