@@ -58,13 +58,14 @@ target 'CoffeeLoyalty' do
       File.write(folly_demangle, patched) if patched != source
     end
 
-    # React Native 0.86 with static frameworks has a header-layout mismatch:
-    # source files in React/Base and React/DevSupport use basename/relative
-    # inspector imports while the generated React module exposes the Cxx
-    # inspector header through the React public-header namespace. Keep the
-    # source patches narrow; do not add recursive header search paths.
+    # React Native 0.86 + static frameworks: keep React source headers
+    # resolvable without adding recursive **/*.h search paths (which causes
+    # duplicate React framework/source declarations).
     react_base = File.join(config[:reactNativePath].to_s, 'React', 'Base')
+    react_dev_support = File.join(config[:reactNativePath].to_s, 'React', 'DevSupport')
+    react_inspector = File.join(config[:reactNativePath].to_s, 'React', 'Inspector')
     react_bridge = File.join(react_base, 'RCTBridge.mm')
+
     if File.file?(react_bridge)
       source = File.read(react_bridge)
       replacements = {
@@ -79,18 +80,18 @@ target 'CoffeeLoyalty' do
       File.write(react_bridge, patched) if patched != source
     end
 
-    inspector_helper = File.join(config[:reactNativePath].to_s, 'React', 'DevSupport', 'RCTInspectorDevServerHelper.h')
+    # The Cxx inspector header is physically under React/Inspector. Resolve it
+    # by basename from that exact directory instead of relying on the generated
+    # React.framework module exposing it as <React/...>.
+    inspector_helper = File.join(react_dev_support, 'RCTInspectorDevServerHelper.h')
     if File.file?(inspector_helper)
       source = File.read(inspector_helper)
       patched = source.gsub(
         '#import <React/RCTInspectorPackagerConnection.h>',
-        '#import <React/RCTCxxInspectorPackagerConnection.h>'
+        '#import "../Inspector/RCTInspectorPackagerConnection.h"'
       ).gsub(
-        '#import "../Inspector/RCTInspectorPackagerConnection.h"',
-        '#import <React/RCTCxxInspectorPackagerConnection.h>'
-      ).gsub(
-        '#import "../Inspector/RCTCxxInspectorPackagerConnection.h"',
-        '#import <React/RCTCxxInspectorPackagerConnection.h>'
+        '#import <React/RCTCxxInspectorPackagerConnection.h>',
+        '#import "../Inspector/RCTCxxInspectorPackagerConnection.h"'
       )
       File.write(inspector_helper, patched) if patched != source
     end
@@ -101,6 +102,18 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+
+        if target.name == 'React-Core.common' || target.name == 'React-Core'
+          # Only the two concrete React subdirectories required by the patched
+          # source imports. Do not expose the whole React tree.
+          paths = [react_dev_support, react_inspector]
+          existing = build_config.build_settings['HEADER_SEARCH_PATHS']
+          existing = existing.is_a?(Array) ? existing : [existing || '$(inherited)']
+          paths.each do |path|
+            existing << '"' + path + '"' unless existing.include?('"' + path + '"')
+          end
+          build_config.build_settings['HEADER_SEARCH_PATHS'] = existing
+        end
       end
     end
   end
