@@ -62,18 +62,19 @@ target 'CoffeeLoyalty' do
     end
 
     # React-Core is built as a static framework in this project. React source
-    # files contain basename imports for DevSupport headers, while the normal
-    # React framework/module mapping is unavailable during this source build.
-    # Patch only the affected imports to deterministic source-relative paths;
-    # do not restore recursive header search paths, which caused duplicate
-    # RCTSurfaceView/RCTSurfaceProtocol declarations.
+    # files contain basename imports for DevSupport/Inspector headers, while
+    # the normal React framework/module mapping is unavailable during this
+    # source build. Patch only these affected imports to deterministic
+    # source-relative paths; do not restore recursive header search paths,
+    # which caused duplicate RCTSurfaceView/RCTSurfaceProtocol declarations.
     react_base = File.join(config[:reactNativePath].to_s, 'React', 'Base')
     react_bridge = File.join(react_base, 'RCTBridge.mm')
     if File.file?(react_bridge)
       source = File.read(react_bridge)
       replacements = {
         '#import "RCTInspectorDevServerHelper.h"' => '#import "../DevSupport/RCTInspectorDevServerHelper.h"',
-        '#import "RCTDevLoadingViewProtocol.h"' => '#import "../DevSupport/RCTDevLoadingViewProtocol.h"'
+        '#import "RCTDevLoadingViewProtocol.h"' => '#import "../DevSupport/RCTDevLoadingViewProtocol.h"',
+        '#import "RCTInspectorNetworkHelper.h"' => '#import "../Inspector/RCTInspectorNetworkHelper.h"'
       }
       patched = source.dup
       replacements.each { |from, to| patched = patched.gsub(from, to) }
