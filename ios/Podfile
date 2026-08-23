@@ -72,7 +72,8 @@ target 'CoffeeLoyalty' do
         '#import "RCTInspectorDevServerHelper.h"' => '#import "../DevSupport/RCTInspectorDevServerHelper.h"',
         '#import "RCTDevLoadingViewProtocol.h"' => '#import "../DevSupport/RCTDevLoadingViewProtocol.h"',
         '#import "RCTInspectorNetworkHelper.h"' => '#import "../DevSupport/RCTInspectorNetworkHelper.h"',
-        '#import "RCTInspectorUtils.h"' => '#import "../DevSupport/RCTInspectorUtils.h"'
+        '#import "RCTInspectorUtils.h"' => '#import "../DevSupport/RCTInspectorUtils.h"',
+        '#import "RCTPausedInDebuggerOverlayController.h"' => '#import "../DevSupport/RCTPausedInDebuggerOverlayController.h"'
       }
       patched = source.dup
       replacements.each { |from, to| patched = patched.gsub(from, to) }
