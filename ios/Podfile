@@ -7,7 +7,6 @@ require Pod::Executable.execute_command('node', ['-p',
 
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
-# Expo SDK 57 / Xcode compatibility workaround.
 expo_jsi_package = File.dirname(`node --print "require.resolve('expo-modules-jsi/package.json')"`.strip)
 expo_jsi_date = File.join(expo_jsi_package, 'apple/Sources/ExpoModulesJSI/Coding/JavaScriptCodable+Date.swift')
 if File.file?(expo_jsi_date)
@@ -36,9 +35,6 @@ target 'CoffeeLoyalty' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
-  # React Native 0.86.x + use_frameworks! can make React-Core headers visible
-  # both from node_modules and from a generated React framework. Keep
-  # React-Core as a static library while Firebase/Expo remain static frameworks.
   pre_install do |installer|
     installer.pod_targets.each do |pod_target|
       if pod_target.name == 'React-Core' || pod_target.name.start_with?('React-Core.')
@@ -54,14 +50,29 @@ target 'CoffeeLoyalty' do
       :mac_catalyst_enabled => false
     )
 
-    # RCT-Folly workaround: Xcode may expose a partial/incompatible
-    # demangle.h. Folly has a cxxabi fallback, so disable only its optional
-    # libiberty section at pod-install time.
+    # React-Core 0.86.x with use_frameworks! may import inspector/devsupport
+    # headers using the public <React/...> form even though some headers live
+    # in React/Inspector. Patch the local source include to the actual source
+    # location instead of relying on an umbrella/framework header that is not
+    # generated for this static-library configuration.
+    inspector_helper = File.join(
+      Pod::Config.instance.installation_root,
+      'node_modules', 'react-native', 'React', 'DevSupport',
+      'RCTInspectorDevServerHelper.h'
+    )
+    if File.file?(inspector_helper)
+      source = File.read(inspector_helper)
+      patched = source.gsub(
+        '#import <React/RCTInspectorPackagerConnection.h>',
+        '#import "../Inspector/RCTInspectorPackagerConnection.h"'
+      )
+      File.write(inspector_helper, patched) if patched != source
+    end
+
+    # RCT-Folly workaround for Xcode's incompatible optional demangle.h.
     folly_demangle = File.join(
       Pod::Config.instance.sandbox_root.to_s,
-      'RCT-Folly',
-      'folly',
-      'Demangle.cpp'
+      'RCT-Folly', 'folly', 'Demangle.cpp'
     )
     if File.file?(folly_demangle)
       source = File.read(folly_demangle)
@@ -72,37 +83,6 @@ target 'CoffeeLoyalty' do
       File.write(folly_demangle, patched) if patched != source
     end
 
-    # React-Core is built as a static library while the Podfile uses static
-    # frameworks. In this combination CocoaPods can generate React-Core.common
-    # compile settings that do not resolve React Native's DevSupport headers.
-    # RCTBridge.mm uses quoted imports, so make those two imports deterministic
-    # by converting them to paths relative to React/Base. This avoids depending
-    # on generated framework header maps or HEADER_SEARCH_PATHS merging.
-    react_native_root = File.expand_path(
-      '../node_modules/react-native/React',
-      Pod::Config.instance.installation_root
-    )
-    bridge_file = File.join(react_native_root, 'Base', 'RCTBridge.mm')
-    inspector_header = File.join(react_native_root, 'DevSupport', 'RCTInspectorDevServerHelper.h')
-    loading_header = File.join(react_native_root, 'DevSupport', 'RCTDevLoadingViewProtocol.h')
-
-    if File.file?(bridge_file)
-      source = File.read(bridge_file)
-      patched = source
-        .gsub('#import "RCTInspectorDevServerHelper.h"', '#import "../DevSupport/RCTInspectorDevServerHelper.h"')
-        .gsub('#import "RCTDevLoadingViewProtocol.h"', '#import "../DevSupport/RCTDevLoadingViewProtocol.h"')
-      File.write(bridge_file, patched) if patched != source
-    else
-      raise "React Native RCTBridge.mm not found: #{bridge_file}"
-    end
-
-    unless File.file?(inspector_header)
-      raise "React Native header not found: #{inspector_header}"
-    end
-    unless File.file?(loading_header)
-      raise "React Native header not found: #{loading_header}"
-    end
-
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
@@ -111,10 +91,15 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
 
         if target.name == 'React-Core' || target.name.start_with?('React-Core.')
+          react_native_root = File.expand_path(
+            '../node_modules/react-native/React',
+            Pod::Config.instance.installation_root
+          )
           react_header_dirs = [
             react_native_root,
             File.join(react_native_root, 'Base'),
             File.join(react_native_root, 'DevSupport'),
+            File.join(react_native_root, 'Inspector'),
             File.join(react_native_root, 'Modules'),
             File.join(react_native_root, 'Profiler'),
             File.join(react_native_root, 'RCTBridge'),
