@@ -17,8 +17,8 @@ end
 
 platform :ios, '16.4'
 
-ENV['RCT_USE_PREBUILT_RNCORE'] = '1'
-ENV['RCT_USE_RN_DEP'] = '1'
+# Keep React Native on the source-based CocoaPods dependency path.
+# Do not force the prebuilt React Core/dependencies artifacts here.
 ENV['RCT_NEW_ARCH_ENABLED'] = '0'
 
 prepare_react_native_project!
@@ -27,19 +27,6 @@ use_frameworks! :linkage => :static
 $RNFirebaseAsStaticFramework = true
 $FirebaseSDKVersion = '11.7.0'
 $RNMapsAsStaticFramework = true
-
-# RN 0.86 + use_frameworks! can expose React typedefs through framework module
-# precompilation before RNFirebase sees the React module. Build RNFirebase pods
-# as static libraries to avoid that module visibility problem.
-pre_install do |installer|
-  installer.pod_targets.each do |pod|
-    if pod.name.start_with?('RNFB')
-      def pod.build_type
-        Pod::BuildType.static_library
-      end
-    end
-  end
-end
 
 target 'CoffeeLoyalty' do
   config = use_native_modules!
@@ -63,6 +50,21 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
       end
+    end
+
+    # Fail early with a useful message if CocoaPods restores an incomplete
+    # RCT-Folly checkout. The file must come from the RN dependency itself;
+    # never generate or patch Demangle.cpp in CI.
+    folly_demangle = File.join(
+      Pod::Config.instance.installation_root,
+      'Pods',
+      'RCT-Folly',
+      'folly',
+      'Demangle.cpp'
+    )
+
+    unless File.file?(folly_demangle)
+      raise "RCT-Folly is incomplete: #{folly_demangle} is missing. Clean Pods/CocoaPods cache and reinstall dependencies."
     end
   end
 end
