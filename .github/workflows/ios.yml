@@ -55,32 +55,25 @@ jobs:
         run: |
           rm -rf ios/Pods ios/Podfile.lock ~/Library/Developer/Xcode/DerivedData/*
 
-      - name: Isolate GTMSessionFetcher source headers
-        run: |
-          set -e
-          ruby <<'RUBY'
-          path = 'ios/Podfile'
-          text = File.read(path)
-          marker = "            # Xcode emits HEADER_SEARCH_PATHS -I flags and the -F framework\n"
-          patch = <<~'PATCH'
-            # GTMSessionFetcher is consumed by FirebaseAuth through its generated module.
-            # Do not expose the pod's source headers to consumer targets: with static
-            # frameworks Xcode can otherwise load both the source header and the generated
-            # framework header, producing duplicate protocol/class declarations.
-            unless target.name == 'GTMSessionFetcher'
-              dirs.reject! { |d| d.include?('/GTMSessionFetcher') || d.include?('\\GTMSessionFetcher') }
-            end
-          PATCH
-          unless text.include?('GTMSessionFetcher is consumed by FirebaseAuth')
-            updated = text.sub(marker, patch + marker)
-            raise 'Could not locate Podfile header-search-path marker' if updated == text
-            File.write(path, updated)
-          end
-          RUBY
-
       - name: Install CocoaPods dependencies
         working-directory: ios
         run: set -o pipefail && pod install --repo-update 2>&1 | tee ../pod-install.log
+
+      - name: Verify RCT-Folly demangle patch
+        run: |
+          set -e
+          file="ios/Pods/RCT-Folly/folly/Demangle.cpp"
+          if [ ! -f "$file" ]; then
+            echo "RCT-Folly Demangle.cpp not found: $file"
+            exit 1
+          fi
+          if grep -q '#if false && __has_include(<demangle.h>)' "$file"; then
+            echo "RCT-Folly demangle libiberty section successfully disabled."
+          else
+            echo "Expected RCT-Folly demangle patch was not applied."
+            grep -n -E 'demangle.h|demangle_callbackref|cplus_demangle_v3_callback|DMGL_' "$file" | head -40 || true
+            exit 1
+          fi
 
       - name: Select available iPhone simulator
         id: simulator
@@ -115,26 +108,31 @@ jobs:
         if: failure()
         run: |
           echo "========== ERROR SUMMARY =========="
-          grep -E "error:|fatal error:" xcodebuild.log | sort -u | head -40 || true
-          echo "========== failing target =========="
-          line=$(awk '/build commands failed:/{f=1} f && /\.o /{print; exit}' xcodebuild.log)
-          echo "$line"
-          tgt=$(echo "$line" | grep -oE "in target '[^']+'" | sed "s/in target '//;s/'//" | head -1)
-          echo "failing target: $tgt"
-          if [ -n "$tgt" ]; then
-            resp=$(grep -oE "@[^ ]*${tgt}\.build/[^ ]*common-args\.resp" xcodebuild.log | head -1 | sed 's/^@//')
-            echo "resp: $resp"
-            if [ -n "$resp" ]; then
-              echo "========== resp -I flags =========="
-              tr ' ' '\n' < "$resp" | grep -E '^-I' | head -100 || true
+          if [ -f xcodebuild.log ]; then
+            grep -E "error:|fatal error:" xcodebuild.log | sort -u | head -40 || true
+            echo "========== failing target =========="
+            line=$(awk '/build commands failed:/{f=1} f && /\.o /{print; exit}' xcodebuild.log || true)
+            echo "$line"
+            tgt=$(echo "$line" | grep -oE "in target '[^']+'" | sed "s/in target '//;s/'//" | head -1 || true)
+            echo "failing target: $tgt"
+            if [ -n "$tgt" ]; then
+              resp=$(grep -oE "@[^ ]*${tgt}\.build/[^ ]*common-args\.resp" xcodebuild.log | head -1 | sed 's/^@//' || true)
+              echo "resp: $resp"
+              if [ -n "$resp" ] && [ -f "$resp" ]; then
+                echo "========== resp -I flags =========="
+                tr ' ' '\n' < "$resp" | grep -E '^-I' | head -100 || true
+              fi
             fi
+          else
+            echo "xcodebuild.log was not created; the failure occurred before the Xcode build step."
           fi
 
       - name: Upload Xcode build log
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-log
+          if-no-files-found: ignore
           path: |
             xcodebuild.log
             pod-install.log
