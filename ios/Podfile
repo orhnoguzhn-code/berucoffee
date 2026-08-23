@@ -111,6 +111,19 @@ target 'CoffeeLoyalty' do
               end
             end
           end
+
+          # GTMSessionFetcher is built as a static framework. Its generated
+          # framework headers must not be exposed through source-header search
+          # paths to dependent pods (especially FirebaseAuth). Otherwise Clang
+          # can import the same declaration once from the generated framework
+          # and again from ios/Pods/GTMSessionFetcher/Sources/Core/Public,
+          # causing Objective-C class/protocol/enum redefinition errors.
+          unless target.name == 'GTMSessionFetcher'
+            dirs.reject! do |d|
+              d.include?('/GTMSessionFetcher') || d.include?('\\GTMSessionFetcher')
+            end
+          end
+
           hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
           hsp = hsp.is_a?(String) ? hsp : (hsp.is_a?(Array) ? hsp.join(' ') : '$(inherited)')
           quoted = dirs.map { |d| "\"#{d}\"" }.join(' ')
