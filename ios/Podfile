@@ -82,6 +82,23 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+
+        # RCTBridge.mm imports RCTInspectorDevServerHelper.h by filename.
+        # When React-Core is forced back to a static library while the rest of
+        # the project uses static frameworks, CocoaPods can omit React/DevSupport
+        # from the React-Core.common header search paths. Add the React Native
+        # DevSupport directory explicitly so the header resolves consistently.
+        if target.name == 'React-Core' || target.name.start_with?('React-Core.')
+          devsupport_path = File.expand_path(
+            '../node_modules/react-native/React/DevSupport',
+            Pod::Config.instance.installation_root
+          )
+          existing = build_config.build_settings['HEADER_SEARCH_PATHS'] || ['$(inherited)']
+          existing = [existing] unless existing.is_a?(Array)
+          existing = existing.flatten
+          existing << devsupport_path unless existing.include?(devsupport_path)
+          build_config.build_settings['HEADER_SEARCH_PATHS'] = existing
+        end
       end
     end
   end
