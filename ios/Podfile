@@ -7,20 +7,8 @@ require Pod::Executable.execute_command('node', ['-p',
 
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
-expo_jsi_package = File.dirname(`node --print "require.resolve('expo-modules-jsi/package.json')"`.strip)
-expo_jsi_date = File.join(expo_jsi_package, 'apple/Sources/ExpoModulesJSI/Coding/JavaScriptCodable+Date.swift')
-if File.file?(expo_jsi_date)
-  source = File.read(expo_jsi_date)
-  patched = source.gsub('abs(milliseconds)', 'Swift.abs(milliseconds)')
-  File.write(expo_jsi_date, patched) if patched != source
-end
-
 platform :ios, '16.4'
 
-# React Native 0.86 + use_frameworks! can build RNFirebase as a framework module.
-# RN 0.86 has a known module/header issue where RNFirebase public headers expose
-# React typedefs (e.g. RCTPromiseRejectBlock) during module precompilation.
-# Force RNFirebase pods to static libraries to avoid that framework-module path.
 ENV['RCT_USE_PREBUILT_RNCORE'] = '1'
 ENV['RCT_USE_RN_DEP'] = '1'
 ENV['RCT_NEW_ARCH_ENABLED'] = '1'
@@ -61,7 +49,6 @@ target 'CoffeeLoyalty' do
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
-        build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
       end
     end
