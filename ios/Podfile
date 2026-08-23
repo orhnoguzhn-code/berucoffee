@@ -80,12 +80,19 @@ target 'CoffeeLoyalty' do
       File.write(react_bridge, patched) if patched != source
     end
 
+    # RN 0.86 moved the inspector packager implementation to the Cxx bridge.
+    # The legacy RCTInspectorPackagerConnection.h is not the header used by
+    # the current React Native source. Resolve the DevServer helper directly
+    # to the Cxx Inspector header.
     inspector_helper = File.join(config[:reactNativePath].to_s, 'React', 'DevSupport', 'RCTInspectorDevServerHelper.h')
     if File.file?(inspector_helper)
       source = File.read(inspector_helper)
       patched = source.gsub(
         '#import <React/RCTInspectorPackagerConnection.h>',
-        '#import "../Inspector/RCTInspectorPackagerConnection.h"'
+        '#import "../Inspector/RCTCxxInspectorPackagerConnection.h"'
+      ).gsub(
+        '#import "../Inspector/RCTInspectorPackagerConnection.h"',
+        '#import "../Inspector/RCTCxxInspectorPackagerConnection.h"'
       )
       File.write(inspector_helper, patched) if patched != source
     end
