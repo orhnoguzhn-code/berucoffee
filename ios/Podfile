@@ -36,6 +36,20 @@ target 'CoffeeLoyalty' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
+  # React Native 0.86 has a known incompatibility between its React-Core
+  # framework-module headers and use_frameworks!. In particular, <React/...>
+  # imports from React's public headers resolve through CocoaPods' flat header
+  # farm rather than the framework module. Building React-Core as a static
+  # library avoids the module boundary entirely and is the upstream-reported
+  # working configuration for RN 0.86 + use_frameworks!.
+  pre_install do |installer|
+    installer.pod_targets.each do |pod_target|
+      if pod_target.name == 'React-Core' || pod_target.name == 'React-Core.common'
+        pod_target.build_type = Pod::BuildType.static_library
+      end
+    end
+  end
+
   post_install do |installer|
     react_native_post_install(
       installer,
@@ -43,6 +57,9 @@ target 'CoffeeLoyalty' do
       :mac_catalyst_enabled => false
     )
 
+    # RCT-Folly workaround: Xcode may expose a partial/incompatible
+    # demangle.h. Folly has a cxxabi fallback, so disable only its optional
+    # libiberty section at pod-install time.
     folly_demangle = File.join(
       Pod::Config.instance.sandbox_root.to_s,
       'RCT-Folly',
@@ -58,45 +75,9 @@ target 'CoffeeLoyalty' do
       File.write(folly_demangle, patched) if patched != source
     end
 
-    # React Native 0.86 + static frameworks: keep React source headers
-    # resolvable without recursive **/*.h search paths, which can cause
-    # duplicate React framework/source declarations.
-    react_base = File.join(config[:reactNativePath].to_s, 'React', 'Base')
-    react_dev_support = File.join(config[:reactNativePath].to_s, 'React', 'DevSupport')
-    react_inspector = File.join(config[:reactNativePath].to_s, 'React', 'Inspector')
-    react_bridge = File.join(react_base, 'RCTBridge.mm')
-
-    if File.file?(react_bridge)
-      source = File.read(react_bridge)
-      replacements = {
-        '#import "RCTInspectorDevServerHelper.h"' => '#import "../DevSupport/RCTInspectorDevServerHelper.h"',
-        '#import "RCTDevLoadingViewProtocol.h"' => '#import "../DevSupport/RCTDevLoadingViewProtocol.h"',
-        '#import "RCTInspectorNetworkHelper.h"' => '#import "../DevSupport/RCTInspectorNetworkHelper.h"',
-        '#import "RCTInspectorUtils.h"' => '#import "../DevSupport/RCTInspectorUtils.h"',
-        '#import "RCTPausedInDebuggerOverlayController.h"' => '#import "../DevSupport/RCTPausedInDebuggerOverlayController.h"'
-      }
-      patched = source.dup
-      replacements.each { |from, to| patched = patched.gsub(from, to) }
-      File.write(react_bridge, patched) if patched != source
-    end
-
-    # RN 0.86 uses the Cxx inspector packager connection. The old
-    # RCTInspectorPackagerConnection.h import must not be rewritten to the
-    # obsolete header; point it directly at the Cxx header in React/Inspector.
-    inspector_helper = File.join(react_dev_support, 'RCTInspectorDevServerHelper.h')
-    if File.file?(inspector_helper)
-      source = File.read(inspector_helper)
-      patched = source
-        .gsub(
-          '#import <React/RCTInspectorPackagerConnection.h>',
-          '#import "../Inspector/RCTCxxInspectorPackagerConnection.h"'
-        )
-        .gsub(
-          '#import <React/RCTCxxInspectorPackagerConnection.h>',
-          '#import "../Inspector/RCTCxxInspectorPackagerConnection.h"'
-        )
-      File.write(inspector_helper, patched) if patched != source
-    end
+    # Do not patch React Native source imports. RN 0.86's Inspector headers
+    # are internally consistent; the failure was caused by React-Core being
+    # compiled as a framework module under use_frameworks!.
 
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
@@ -104,17 +85,6 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
-
-        if target.name == 'React-Core.common' || target.name == 'React-Core'
-          paths = [react_dev_support, react_inspector]
-          existing = build_config.build_settings['HEADER_SEARCH_PATHS']
-          existing = existing.is_a?(Array) ? existing : [existing || '$(inherited)']
-          paths.each do |path|
-            entry = '"' + path + '"'
-            existing << entry unless existing.include?(entry)
-          end
-          build_config.build_settings['HEADER_SEARCH_PATHS'] = existing
-        end
       end
     end
   end
