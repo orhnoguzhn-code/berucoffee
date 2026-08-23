@@ -73,12 +73,12 @@ target 'CoffeeLoyalty' do
       File.write(folly_demangle, patched) if patched != source
     end
 
-    # React Native 0.86 compiles RCTBridge.mm and Inspector sources in the
-    # React-Core target. With use_frameworks!, the generated target may not
-    # inherit the source-tree header search paths, so quoted imports such as
-    # RCTInspectorDevServerHelper.h cannot be resolved. Add the two RN source
-    # directories explicitly; this keeps RN source unchanged and fixes the
-    # target that is actually compiling the files.
+    # React Native 0.86 + use_frameworks! can leave React-Core compiling
+    # source files with quoted imports that point to sibling source folders.
+    # HEADER_SEARCH_PATHS is not consistently propagated to React-Core.common
+    # on all CocoaPods/Xcode combinations, so make these imports unambiguous
+    # by resolving them relative to RCTBridge.mm itself. This does not modify
+    # the package permanently; CI starts from a fresh node_modules tree.
     react_native_root = File.join(
       Pod::Config.instance.installation_root.to_s,
       '..',
@@ -86,7 +86,26 @@ target 'CoffeeLoyalty' do
       'react-native',
       'React'
     )
+    bridge_file = File.join(react_native_root, 'Base', 'RCTBridge.mm')
+    if File.file?(bridge_file)
+      source = File.read(bridge_file)
+      replacements = {
+        '#import "RCTInspectorDevServerHelper.h"' => '#import "../DevSupport/RCTInspectorDevServerHelper.h"',
+        '#import "RCTDevLoadingViewProtocol.h"' => '#import "../DevSupport/RCTDevLoadingViewProtocol.h"',
+        '#import "RCTInspectorNetworkHelper.h"' => '#import "../Inspector/RCTInspectorNetworkHelper.h"',
+        '#import "RCTInspectorUtils.h"' => '#import "../Inspector/RCTInspectorUtils.h"',
+        '#import "RCTPausedInDebuggerOverlayController.h"' => '#import "../DevSupport/RCTPausedInDebuggerOverlayController.h"'
+      }
+      patched = source.dup
+      replacements.each { |from, to| patched = patched.gsub(from, to) }
+      File.write(bridge_file, patched) if patched != source
+    end
+
+    # RCTInspectorDevServerHelper.h itself already uses a relative import for
+    # the Inspector headers, so it remains independent of Xcode header paths.
+    # Keep these paths as a fallback for other React-Core source files.
     react_native_header_paths = [
+      File.join(react_native_root, 'Base'),
       File.join(react_native_root, 'DevSupport'),
       File.join(react_native_root, 'Inspector')
     ]
