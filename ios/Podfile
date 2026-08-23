@@ -37,18 +37,16 @@ target 'CoffeeLoyalty' do
   )
 
   # React Native 0.86.x + use_frameworks! can make React-Core headers visible
-  # both from node_modules and from a generated React framework. That produces
-  # duplicate RCT* interfaces and then a cascade of missing Inspector/DevSupport
-  # headers. Keep React-Core as a static library while Firebase/Expo remain
-  # static frameworks.
+  # both from node_modules and from a generated React framework. Keep
+  # React-Core as a static library while Firebase/Expo remain static frameworks.
   #
-  # This requires a CocoaPods version that exposes PodTarget#build_type=.
-  # CI pins CocoaPods 1.16.2 so this is deterministic and does not rely on
-  # monkey-patching CocoaPods internals.
+  # CocoaPods 1.16.2 exposes Pod::BuildType but PodTarget does not provide a
+  # public build_type= writer. Set the supported internal value directly instead
+  # of calling the unavailable setter (which caused `undefined method build_type=`).
   pre_install do |installer|
     installer.pod_targets.each do |pod_target|
       if pod_target.name == 'React-Core' || pod_target.name.start_with?('React-Core.')
-        pod_target.build_type = Pod::BuildType.static_library
+        pod_target.instance_variable_set(:@build_type, Pod::BuildType.static_library)
       end
     end
   end
