@@ -17,9 +17,6 @@ end
 
 platform :ios, '16.4'
 
-# React Native 0.86 uses the prebuilt RN Core + prebuilt RN dependencies by default.
-# Keeping both enabled is important when use_frameworks! is used; opting out of
-# RN dependencies while keeping RN Core prebuilt creates an inconsistent header/module setup.
 ENV['RCT_USE_PREBUILT_RNCORE'] = '1'
 ENV['RCT_USE_RN_DEP'] = '1'
 ENV['RCT_NEW_ARCH_ENABLED'] = '0'
@@ -31,11 +28,9 @@ $RNFirebaseAsStaticFramework = true
 $FirebaseSDKVersion = '11.7.0'
 $RNMapsAsStaticFramework = true
 
-# RN 0.86 + use_frameworks! + the prebuilt React Core module map can make RNFirebase
-# compile as a framework module. RNFirebase's Objective-C headers expose React typedefs
-# such as RCTPromiseRejectBlock, which then become unavailable during module precompilation.
-# Build RNFirebase pods as static libraries instead. This is the documented workaround
-# for this RN 0.86 module/header interaction and avoids changing RNFirebase source files.
+# RN 0.86 + use_frameworks! can expose React typedefs through framework module
+# precompilation before RNFirebase sees the React module. Build RNFirebase pods
+# as static libraries to avoid that module visibility problem.
 pre_install do |installer|
   installer.pod_targets.each do |pod|
     if pod.name.start_with?('RNFB')
@@ -68,20 +63,6 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
       end
-    end
-
-    # RCT-Folly workaround for Xcode's incompatible optional demangle.h.
-    folly_demangle = File.join(
-      Pod::Config.instance.sandbox_root.to_s,
-      'RCT-Folly', 'folly', 'Demangle.cpp'
-    )
-    if File.file?(folly_demangle)
-      source = File.read(folly_demangle)
-      patched = source.gsub(
-        '#if __has_include(<demangle.h>)',
-        '#if false && __has_include(<demangle.h>)'
-      )
-      File.write(folly_demangle, patched) if patched != source
     end
   end
 end
