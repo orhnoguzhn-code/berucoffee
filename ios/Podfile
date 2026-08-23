@@ -8,7 +8,11 @@ require Pod::Executable.execute_command('node', ['-p',
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
 # Xcode 26 / Swift 6.x compatibility fixes for ExpoModulesJSI 57.
-# These are applied to node_modules before CocoaPods generates its build script.
+# expo-modules-jsi 57.0.5 has Swift/C++ interop issues with recent Xcode:
+# - RuntimeScheduler constructors use invalid SWIFT_RETURNS_* annotations.
+# - weak let runtime references are rejected by Swift 6.
+# - weak var runtime storage then triggers strict Sendable checking.
+# Apply the minimal source-level compatibility fixes before CocoaPods builds the JSI slice.
 expo_jsi_package = File.dirname(`node --print "require.resolve('expo-modules-jsi/package.json')"`.strip)
 expo_jsi_root = File.join(expo_jsi_package, 'apple/Sources/ExpoModulesJSI')
 expo_jsi_cxx = File.join(expo_jsi_package, 'apple/Sources/ExpoModulesJSI-Cxx')
@@ -24,14 +28,15 @@ if Dir.exist?(expo_jsi_root)
   Dir.glob(File.join(expo_jsi_root, '**/*.swift')).each do |file|
     source = File.read(file)
     patched = source
-      .gsub(/\bweak let\s+runtime\b/, 'weak var runtime')
+      # Swift 6 requires weak storage to be mutable. The runtime is intentionally
+      # a weak cross-concurrency reference, so explicitly opt that storage out of
+      # actor isolation checking rather than changing the JSI ownership model.
+      .gsub(/\b(?:nonisolated\(unsafe\)\s+)?weak let\s+runtime\b/, 'nonisolated(unsafe) weak var runtime')
+      # Xcode 26 C++ interop can resolve abs() ambiguously.
       .gsub('abs(milliseconds) <= maxJavaScriptDateMilliseconds', 'Swift.abs(milliseconds) <= maxJavaScriptDateMilliseconds')
-
-    # Swift 6 enforces Sendable checking on these reference-wrapper classes.
-    # They intentionally contain weak, mutable runtime references and are safe
-    # for the existing JSI ownership model; mark only class conformances as
-    # @unchecked Sendable so Swift does not reject the weak var storage.
-    patched = patched.gsub(/^(\s*(?:public\s+|internal\s+|private\s+|final\s+|open\s+)*class\s+[^\n:]+(?:\s*:\s*[^\n{]*?)?)\bSendable\b/, '\\1@unchecked Sendable')
+      # The compatibility script must be idempotent. Older versions of this
+      # workaround could accidentally produce @unchecked @unchecked Sendable.
+      .gsub(/@unchecked\s+@unchecked\s+Sendable/, '@unchecked Sendable')
 
     File.write(file, patched) if patched != source
   end
