@@ -50,16 +50,6 @@ $RNFirebaseAsStaticFramework = true
 $FirebaseSDKVersion = '11.7.0'
 $RNMapsAsStaticFramework = true
 
-pre_install do |installer|
-  installer.pod_targets.each do |pod|
-    if pod.name.start_with?('RNFB')
-      pod.define_singleton_method(:build_type) do
-        Pod::BuildType.static_library
-      end
-    end
-  end
-end
-
 target 'CoffeeLoyalty' do
   config = use_native_modules!
 
