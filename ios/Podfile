@@ -77,6 +77,20 @@ target 'CoffeeLoyalty' do
       File.write(react_bridge, patched) if patched != source
     end
 
+    # RCTInspectorDevServerHelper.h is under React/DevSupport, while its
+    # packager connection header is under React/Inspector. The normal
+    # <React/...> module mapping is not available for this static React-Core
+    # source compilation, so make this dependency source-relative as well.
+    inspector_helper = File.join(config[:reactNativePath].to_s, 'React', 'DevSupport', 'RCTInspectorDevServerHelper.h')
+    if File.file?(inspector_helper)
+      source = File.read(inspector_helper)
+      patched = source.gsub(
+        '#import <React/RCTInspectorPackagerConnection.h>',
+        '#import "../Inspector/RCTInspectorPackagerConnection.h"'
+      )
+      File.write(inspector_helper, patched) if patched != source
+    end
+
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
