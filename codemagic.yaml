@@ -16,22 +16,30 @@ workflows:
         script: |
           set -e
           rm -rf ios/Pods
+          rm -rf ios/Podfile.lock
           rm -rf ~/Library/Caches/CocoaPods
           rm -rf ~/Library/Developer/Xcode/DerivedData
+          rm -rf ~/Library/Caches/CocoaPods/Pods/External/RCT-Folly
+          rm -rf ~/Library/Caches/CocoaPods/Pods/Release/RCT-Folly
           pod cache clean RCT-Folly --all || true
       - name: Pod install
         script: |
           set -e
           cd ios
           pod deintegrate || true
-          rm -rf Pods
+          rm -rf Pods Podfile.lock
           pod repo update
           pod install --repo-update
 
           echo "========== VERIFY RCT-Folly =========="
           if [ ! -f "Pods/RCT-Folly/folly/Demangle.cpp" ]; then
-            echo "ERROR: RCT-Folly Demangle.cpp is missing"
+            echo "ERROR: RCT-Folly Demangle.cpp is missing after a clean pod install"
+            echo "RCT-Folly directory:"
+            ls -la Pods/RCT-Folly 2>/dev/null || true
+            echo "Folly files:"
             find Pods/RCT-Folly -maxdepth 3 -type f 2>/dev/null | sort | head -200 || true
+            echo "React Native RCT-Folly podspec:"
+            ls -la ../node_modules/react-native/third-party-podspecs/RCT-Folly.podspec 2>/dev/null || true
             exit 1
           fi
           echo "RCT-Folly Demangle.cpp OK"
