@@ -61,10 +61,12 @@ target 'CoffeeLoyalty' do
       File.write(folly_demangle, patched) if patched != source
     end
 
-    # Keep CocoaPods' standard React Native header configuration intact.
-    # Only add the specific DevSupport directory required by React-Core's
-    # RCTBridge.mm import; never recursively add all pod headers to -I paths.
+    # React-Core's RCTBridge.mm imports DevSupport headers by basename.
+    # Keep this narrowly scoped so React framework generated headers cannot
+    # leak into React-Core's source-header resolution.
     react_dev_support = File.join(config[:reactNativePath].to_s, 'React', 'DevSupport')
+    dev_support_flag = '"' + react_dev_support + '"'
+    dev_support_include = '-I' + dev_support_flag
 
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
@@ -76,26 +78,15 @@ target 'CoffeeLoyalty' do
         if target.name == 'React-Core.common' || target.name == 'React-Core'
           existing = build_config.build_settings['HEADER_SEARCH_PATHS']
           existing = existing.is_a?(Array) ? existing.join(' ') : (existing || '$(inherited)').to_s
-          dev_support_flag = '"' + react_dev_support + '"'
-          unless existing.include?(dev_support_flag)
-            build_config.build_settings['HEADER_SEARCH_PATHS'] = "#{dev_support_flag} #{existing}"
-          end
+          build_config.build_settings['HEADER_SEARCH_PATHS'] = "#{dev_support_flag} #{existing}" unless existing.include?(dev_support_flag)
 
-          # Some CocoaPods/Xcode configurations do not propagate the modified
-          # HEADER_SEARCH_PATHS into the clang response file used by React-Core.
-          # Put only this exact directory on the compiler include flags as well.
-          dev_support_include = '-I"' + react_dev_support + '"'
           cflags = build_config.build_settings['OTHER_CFLAGS']
           cflags = cflags.is_a?(Array) ? cflags.join(' ') : (cflags || '$(inherited)').to_s
-          unless cflags.include?(dev_support_include)
-            build_config.build_settings['OTHER_CFLAGS'] = "#{dev_support_include} #{cflags}"
-          end
+          build_config.build_settings['OTHER_CFLAGS'] = "#{dev_support_include} #{cflags}" unless cflags.include?(dev_support_include)
 
           cppflags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS']
           cppflags = cppflags.is_a?(Array) ? cppflags.join(' ') : (cppflags || '$(inherited)').to_s
-          unless cppflags.include?(dev_support_include)
-            build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{dev_support_include} #{cppflags}"
-          end
+          build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{dev_support_include} #{cppflags}" unless cppflags.include?(dev_support_include)
         end
       end
     end
