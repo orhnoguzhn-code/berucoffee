@@ -68,8 +68,12 @@ jobs:
           hash -r
           echo "RubyGems bin: ${GEM_BIN}"
           echo "pod executable: $(command -v pod)"
-          pod_version="$(pod --version)"
-          echo "CocoaPods version: ${pod_version}"
+
+          # The runner may already contain CocoaPods 1.17.x. Installing 1.16.2
+          # does not necessarily make the unqualified `pod` executable select
+          # that version. RubyGems' explicit version selector does.
+          pod_version="$(pod _1.16.2_ --version)"
+          echo "CocoaPods selected version: ${pod_version}"
           test "${pod_version}" = "1.16.2"
 
       - name: Install CocoaPods dependencies
@@ -84,14 +88,14 @@ jobs:
           ruby --version
           gem --version
           echo "pod executable: $(command -v pod)"
-          pod --version
+          echo "CocoaPods version: $(pod _1.16.2_ --version)"
           node --version
           npm --version
           xcodebuild -version
           echo "========== PODFILE =========="
           sed -n '1,280p' Podfile
           echo "========== POD INSTALL =========="
-          pod install --repo-update --clean-install --verbose 2>&1 | tee ../pod-install.log
+          pod _1.16.2_ install --repo-update --clean-install --verbose 2>&1 | tee ../pod-install.log
           status=${PIPESTATUS[0]}
           echo "========== POD INSTALL EXIT CODE: ${status} =========="
           if [ "${status}" -ne 0 ]; then
