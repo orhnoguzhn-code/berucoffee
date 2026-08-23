@@ -7,6 +7,21 @@ require Pod::Executable.execute_command('node', ['-p',
 
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
+# Xcode 26 rejects ExpoModulesJSI's Swift ownership annotations on the
+# RuntimeScheduler C++ factory functions. Patch the actual node_modules source
+# while CocoaPods is loading the Podfile, before ExpoModulesJSI generates its
+# build script. This is deliberately idempotent.
+expo_jsi_package = File.dirname(`node --print "require.resolve('expo-modules-jsi/package.json')"`.strip)
+expo_jsi_runtime_scheduler = File.join(expo_jsi_package, 'apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h')
+if File.file?(expo_jsi_runtime_scheduler)
+  source = File.read(expo_jsi_runtime_scheduler)
+  patched = source.gsub(/\bSWIFT_RETURNS_(?:RETAINED|UNRETAINED)\s+/, '')
+  File.write(expo_jsi_runtime_scheduler, patched) if patched != source
+  if File.read(expo_jsi_runtime_scheduler).match?(/\bSWIFT_RETURNS_(?:RETAINED|UNRETAINED)\b/)
+    abort('ExpoModulesJSI RuntimeScheduler ownership annotations remain')
+  end
+end
+
 platform :ios, '16.4'
 
 ENV['RCT_USE_PREBUILT_RNCORE'] = '1'
@@ -49,6 +64,7 @@ target 'CoffeeLoyalty' do
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
+        build_config.build_settings.delete('SWIFT_VERSION')
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
       end
     end
