@@ -10,15 +10,31 @@ workflows:
     scripts:
       - name: Install dependencies
         script: |
+          set -e
           npm ci
       - name: Clean CocoaPods workspace
         script: |
+          set -e
           rm -rf ios/Pods
-          pod cache clean --all --verbose || true
+          rm -rf ~/Library/Caches/CocoaPods
+          rm -rf ~/Library/Developer/Xcode/DerivedData
+          pod cache clean RCT-Folly --all || true
       - name: Pod install
         script: |
-          set -o pipefail
-          cd ios && pod install --repo-update 2>&1 | tee /tmp/pod-install.log
+          set -e
+          cd ios
+          pod deintegrate || true
+          rm -rf Pods
+          pod repo update
+          pod install --repo-update
+
+          echo "========== VERIFY RCT-Folly =========="
+          if [ ! -f "Pods/RCT-Folly/folly/Demangle.cpp" ]; then
+            echo "ERROR: RCT-Folly Demangle.cpp is missing"
+            find Pods/RCT-Folly -maxdepth 3 -type f 2>/dev/null | sort | head -200 || true
+            exit 1
+          fi
+          echo "RCT-Folly Demangle.cpp OK"
           cd ..
       - name: Build
         script: |
@@ -37,73 +53,6 @@ workflows:
             grep -n -E "error:|fatal error:|clang: error|SwiftCompile|CompileSwift|CompileC|PhaseScriptExecution|Ld |linker command failed|Undefined symbols|The following build commands failed|BUILD FAILED|Command .* failed" /tmp/ios-build.log | tail -120 || true
             echo "========== Last 120 build-log lines =========="
             tail -120 /tmp/ios-build.log || true
-            tgt=$(awk '/build commands failed:/{f=1} f' /tmp/ios-build.log | grep -oE "in target '[^']+'" | head -1 | sed "s/in target '//;s/'//")
-            if [ -z "$tgt" ]; then
-              tgt=$(grep -E "error:|fatal error:|clang: error|SwiftCompile|CompileSwift|CompileC|PhaseScriptExecution|Ld |linker command failed|Undefined symbols|The following build commands failed|BUILD FAILED|Command .* failed" /tmp/ios-build.log | grep -oE "in target '[^']+'" | head -1 | sed "s/in target '//;s/'//")
-            fi
-            echo "failing target: $tgt"
-            echo "========== Failed compile command (search paths) =========="
-            grep -E "\.resp|common-args" /tmp/ios-build.log | grep -e "-c /" | tail -3 || true
-            echo "========== Response file (-I flags) =========="
-            resp=$(grep -oE "@[^ ]*${tgt}\.build/[^ ]*common-args\.resp" /tmp/ios-build.log | head -1 | sed 's/^@//')
-            echo "resp: $resp"
-            if [ -n "$resp" ]; then
-              tr ' ' '\n' < "$resp" | grep -E '^-I' | head -80 || true
-              echo "========== Shadowing header dirs in resp (-I) =========="
-              tr ' ' '\n' < "$resp" | grep '^-I' | sed 's/^-I//' | while read -r d; do
-                d=$(echo "$d" | sed 's/"//g')
-                for h in stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h; do
-                  if [ -f "$d/$h" ]; then
-                    echo "SHADOW DIR ($h): $d"
-                    break
-                  fi
-                done
-              done
-              echo "========== Shadowing header dirs in resp (-isystem/-idirafter) =========="
-              tr ' ' '\n' < "$resp" | grep -E '^-isystem|^-idirafter' | sed -E 's/^-(isystem|idirafter)//' | while read -r d; do
-                d=$(echo "$d" | sed 's/"//g')
-                for h in stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h; do
-                  if [ -f "$d/$h" ]; then
-                    echo "ISYSTEM SHADOW DIR ($h): $d"
-                    break
-                  fi
-                done
-              done
-              echo "========== All -isystem flags =========="
-              tr ' ' '\n' < "$resp" | grep -E '^-isystem|^-idirafter' || true
-              echo "========== math.h hunt =========="
-              ls -la /usr/local/include/math.h 2>/dev/null || echo "no /usr/local/include/math.h"
-              find /Users/builder/clone/ios/Pods/ReactNativeDependencies -maxdepth 4 -name 'math.h' 2>/dev/null | head -20
-              find /Users/builder/clone/ios/Pods/ReactNativeDependencies -maxdepth 4 -name 'stdio.h' -o -maxdepth 4 -name 'stdlib.h' 2>/dev/null | head -20
-            fi
-            echo "========== Header farm for failing pod =========="
-            find "ios/Pods/Headers/Public/$tgt" -maxdepth 3 2>/dev/null | head -20 || true
-            echo "========== duplicate interface context =========="
-            grep -B12 -A2 "duplicate interface definition" /tmp/ios-build.log | head -80 || true
-            echo "========== FIROptions.h copies =========="
-            find ios/Pods -name 'FIROptions.h' 2>/dev/null
-            find /Users/builder/Library/Developer/Xcode/DerivedData -name 'FIROptions.h' -path '*FirebaseCore*' 2>/dev/null | head -10
-            echo "========== Real source header dirs for failing pod =========="
-            find "ios/Pods/$tgt" -name '*.h' 2>/dev/null | sed 's|/[^/]*$||' | sort -u | head -30 || true
-            echo "========== @import lines in failing pod sources =========="
-            grep -rn "@import" "ios/Pods/$tgt" --include="*.h" --include="*.m" --include="*.mm" 2>/dev/null | head -20 || true
-            echo "========== FirebaseCoreInternal hunt =========="
-            find ios/Pods -name 'FirebaseCoreInternal.h' 2>/dev/null
-            find ios/Pods/FirebaseCoreInternal -maxdepth 5 2>/dev/null | head -40
-            echo "========== Farm root contents =========="
-            ls -la ios/Pods/Headers/Public/ 2>/dev/null | head -40
-            ls -la ios/Pods/Headers/Public/FirebaseCoreInternal 2>/dev/null | head -20
-            echo "========== resp -I flags mentioning farm/internal =========="
-            if [ -n "$resp" ]; then
-              tr ' ' '\n' < "$resp" | grep -E '^-I' | grep -i 'Headers/Public\|FirebaseCoreInternal\|PODS_ROOT' || true
-            fi
-            echo "========== Podfile-derived paths (pod install log) =========="
-            grep -E "\[berucoffee\] ${tgt} " /tmp/pod-install.log 2>/dev/null | head -4 || true
-            echo "========== ERROR SUMMARY (reprinted at end) =========="
-            grep -n -E "error:|fatal error:|clang: error|SwiftCompile|CompileSwift|CompileC|PhaseScriptExecution|Ld |linker command failed|Undefined symbols|The following build commands failed|BUILD FAILED|Command .* failed" /tmp/ios-build.log | tail -120 || true
-            echo "failing target: $tgt"
-            echo "first failing command:"
-            awk '/build commands failed:/{f=1} f && /\.o /{print; exit}' /tmp/ios-build.log | head -1 || true
           fi
           exit "$build_status"
     artifacts:
