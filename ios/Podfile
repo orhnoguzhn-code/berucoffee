@@ -54,6 +54,12 @@ target 'CoffeeLoyalty' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
+  # RN 0.86 + prebuilt RNCore + static frameworks can omit the AppDelegate
+  # module from the application target even though React Native depends on it.
+  # Explicitly link the pods required by AppDelegate.swift.
+  pod 'React-RCTAppDelegate', :path => "#{config[:reactNativePath]}"
+  pod 'ReactAppDependencyProvider', :path => "#{config[:reactNativePath]}"
+
   post_install do |installer|
     react_native_post_install(
       installer,
