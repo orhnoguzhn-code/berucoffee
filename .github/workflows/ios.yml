@@ -24,14 +24,13 @@ jobs:
 
       - name: Select compatible Xcode
         run: |
-          set -e
+          set -euo pipefail
           DEVELOPER_DIR="/Applications/Xcode_16.4.app"
           if [ ! -d "$DEVELOPER_DIR" ]; then
             echo "Xcode 16.4 is not installed on this runner."
             ls -d /Applications/Xcode*.app 2>/dev/null || true
             exit 1
           fi
-          echo "Using Xcode at: $DEVELOPER_DIR"
           sudo xcode-select -switch "$DEVELOPER_DIR/Contents/Developer"
           export DEVELOPER_DIR="$DEVELOPER_DIR/Contents/Developer"
           xcodebuild -version
@@ -58,14 +57,17 @@ jobs:
           rm -rf ios/Podfile.lock
           rm -rf build/DerivedData
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
-          echo "Cleaned ios/Pods, ios/Podfile.lock, build/DerivedData and Xcode DerivedData."
 
       - name: Install pinned CocoaPods
         shell: bash
         run: |
           set -euo pipefail
           sudo gem install cocoapods -v 1.16.2 --no-document
+          GEM_BIN="$(ruby -e 'puts Gem.bindir')"
+          export PATH="${GEM_BIN}:/usr/local/bin:/opt/homebrew/bin:${PATH}"
           hash -r
+          echo "RubyGems bin: ${GEM_BIN}"
+          echo "pod executable: $(command -v pod)"
           pod_version="$(pod --version)"
           echo "CocoaPods version: ${pod_version}"
           test "${pod_version}" = "1.16.2"
@@ -75,9 +77,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          GEM_BIN="$(ruby -e 'puts Gem.bindir')"
+          export PATH="${GEM_BIN}:/usr/local/bin:/opt/homebrew/bin:${PATH}"
+          hash -r
           echo "========== COCOAPODS ENVIRONMENT =========="
           ruby --version
           gem --version
+          echo "pod executable: $(command -v pod)"
           pod --version
           node --version
           npm --version
@@ -91,7 +97,6 @@ jobs:
           if [ "${status}" -ne 0 ]; then
             echo "========== POD INSTALL ERROR SUMMARY =========="
             grep -n -E "(Error|ERROR|error:|NoMethodError|undefined method|Invalid|Could not|Unable|cannot|not found|Unable to find a specification)" ../pod-install.log | tail -n 120 || true
-            echo "========== POD INSTALL LAST 300 LINES =========="
             tail -n 300 ../pod-install.log || true
             exit "${status}"
           fi
@@ -102,7 +107,6 @@ jobs:
           set -euxo pipefail
           test -d ios/Pods
           test -f ios/Podfile.lock
-          echo "========== PODS VERIFIED =========="
           grep -E "^(  - React-Core|  - RCT-Folly|  - Firebase|  - GoogleMaps)" ios/Podfile.lock || true
 
       - name: Verify React-Core integration mode
