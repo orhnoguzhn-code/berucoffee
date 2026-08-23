@@ -51,29 +51,28 @@ target 'CoffeeLoyalty' do
     )
 
     # React-Core + use_frameworks! workaround.
-    # RCTBridge imports DevSupport/Inspector headers directly, while this
-    # static-library configuration does not expose React's normal header map.
-    # Rewrite those imports to source-relative paths so the compiler does not
-    # depend on CocoaPods' generated framework header layout.
-    react_bridge = File.join(
-      Pod::Config.instance.installation_root,
-      'node_modules', 'react-native', 'React', 'Base', 'RCTBridge.mm'
+    # The Podfile lives in ios/, while node_modules lives at the repository
+    # root. Use the repository-root-relative path; installation_root is ios/.
+    react_native_root = File.expand_path(
+      '../node_modules/react-native',
+      Pod::Config.instance.installation_root
     )
-    if File.file?(react_bridge)
-      source = File.read(react_bridge)
+    react_bridge = File.join(react_native_root, 'React', 'Base', 'RCTBridge.mm')
 
-      import_rewrites = {
-        '#import "RCTInspectorDevServerHelper.h"' => '#if RCT_ENABLE_INSPECTOR\n#import "../DevSupport/RCTInspectorDevServerHelper.h"\n#endif',
-        '#import "RCTDevLoadingViewProtocol.h"' => '#import "../DevSupport/RCTDevLoadingViewProtocol.h"',
-        '#import "RCTInspectorNetworkHelper.h"' => '#import "../DevSupport/RCTInspectorNetworkHelper.h"'
-      }
-
-      import_rewrites.each do |from, to|
-        source = source.gsub(from, to)
-      end
-
-      File.write(react_bridge, source)
+    unless File.file?(react_bridge)
+      raise "React Native RCTBridge.mm not found at #{react_bridge}"
     end
+
+    source = File.read(react_bridge)
+    import_rewrites = {
+      '#import "RCTInspectorDevServerHelper.h"' => '#if RCT_ENABLE_INSPECTOR\n#import "../DevSupport/RCTInspectorDevServerHelper.h"\n#endif',
+      '#import "RCTDevLoadingViewProtocol.h"' => '#import "../DevSupport/RCTDevLoadingViewProtocol.h"',
+      '#import "RCTInspectorNetworkHelper.h"' => '#import "../DevSupport/RCTInspectorNetworkHelper.h"'
+    }
+    import_rewrites.each do |from, to|
+      source = source.gsub(from, to)
+    end
+    File.write(react_bridge, source)
 
     # RCT-Folly workaround for Xcode's incompatible optional demangle.h.
     folly_demangle = File.join(
@@ -104,23 +103,20 @@ target 'CoffeeLoyalty' do
           definitions << 'RCT_REMOTE_PROFILE=0' unless definitions.include?('RCT_REMOTE_PROFILE=0')
           build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = definitions
 
-          react_native_root = File.expand_path(
-            '../node_modules/react-native/React',
-            Pod::Config.instance.installation_root
-          )
+          react_header_root = File.join(react_native_root, 'React')
           react_header_dirs = [
-            react_native_root,
-            File.join(react_native_root, 'Base'),
-            File.join(react_native_root, 'DevSupport'),
-            File.join(react_native_root, 'Inspector'),
-            File.join(react_native_root, 'Modules'),
-            File.join(react_native_root, 'Profiler'),
-            File.join(react_native_root, 'RCTBridge'),
-            File.join(react_native_root, 'Views'),
-            File.join(react_native_root, 'Views', 'ScrollView'),
-            File.join(react_native_root, 'Views', 'Text'),
-            File.join(react_native_root, 'Views', 'View'),
-            File.join(react_native_root, 'Views', 'SafeAreaView')
+            react_header_root,
+            File.join(react_header_root, 'Base'),
+            File.join(react_header_root, 'DevSupport'),
+            File.join(react_header_root, 'Inspector'),
+            File.join(react_header_root, 'Modules'),
+            File.join(react_header_root, 'Profiler'),
+            File.join(react_header_root, 'RCTBridge'),
+            File.join(react_header_root, 'Views'),
+            File.join(react_header_root, 'Views', 'ScrollView'),
+            File.join(react_header_root, 'Views', 'Text'),
+            File.join(react_header_root, 'Views', 'View'),
+            File.join(react_header_root, 'Views', 'SafeAreaView')
           ].select { |path| File.directory?(path) }
 
           existing = build_config.build_settings['HEADER_SEARCH_PATHS'] || ['$(inherited)']
