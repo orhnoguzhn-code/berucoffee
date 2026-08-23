@@ -16,15 +16,21 @@ if File.file?(expo_jsi_date)
 end
 
 platform :ios, '16.4'
-ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
+
+# React Native 0.86 ships React Native Core as a prebuilt XCFramework.
+# Building React-Core from source together with use_frameworks! causes
+# RCTBridge.mm to lose RN's generated/public header map and produces the
+# recurring RCT*.h "file not found" errors. Keep RN Core in prebuilt mode.
+ENV['RCT_USE_PREBUILT_RNCORE'] = '1'
 ENV['RCT_USE_RN_DEP'] = '0'
+ENV['RCT_NEW_ARCH_ENABLED'] = '0'
+
 prepare_react_native_project!
 use_expo_modules!
 use_frameworks! :linkage => :static
 $RNFirebaseAsStaticFramework = true
 $FirebaseSDKVersion = '11.7.0'
 $RNMapsAsStaticFramework = true
-ENV['RCT_NEW_ARCH_ENABLED'] = '0'
 
 target 'CoffeeLoyalty' do
   config = use_native_modules!
@@ -35,14 +41,6 @@ target 'CoffeeLoyalty' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
-  pre_install do |installer|
-    installer.pod_targets.each do |pod_target|
-      if pod_target.name == 'React-Core' || pod_target.name.start_with?('React-Core.')
-        pod_target.instance_variable_set(:@build_type, Pod::BuildType.static_library)
-      end
-    end
-  end
-
   post_install do |installer|
     react_native_post_install(
       installer,
@@ -50,63 +48,12 @@ target 'CoffeeLoyalty' do
       :mac_catalyst_enabled => false
     )
 
-    # React Native 0.86.2 + use_frameworks! can lose the React source/header
-    # search paths for React-Core.common. Do NOT patch RCTBridge.mm itself:
-    # doing so makes the failure move from one RCT*.h to the next one.
-    # Instead, give every React-Core target the real RN source root and the
-    # React subdirectories. This also preserves imports such as
-    # <React/RCTInspectorPackagerConnection.h>.
-    react_native_root = File.expand_path(
-      '../node_modules/react-native',
-      Pod::Config.instance.installation_root
-    )
-    react_root = File.join(react_native_root, 'React')
-
-    unless File.directory?(react_root)
-      raise "React Native React source directory not found at #{react_root}"
-    end
-
-    react_header_dirs = [react_native_root, react_root]
-    Dir.glob(File.join(react_root, '**')).each do |path|
-      react_header_dirs << path if File.directory?(path)
-    end
-    react_header_dirs.uniq!
-
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
-
-        if target.name == 'React-Core' || target.name.start_with?('React-Core.')
-          definitions = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
-          definitions = [definitions] unless definitions.is_a?(Array)
-          definitions = definitions.flatten
-          definitions << 'RCT_ENABLE_INSPECTOR=0' unless definitions.include?('RCT_ENABLE_INSPECTOR=0')
-          definitions << 'RCT_REMOTE_PROFILE=0' unless definitions.include?('RCT_REMOTE_PROFILE=0')
-          build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = definitions
-
-          # Use quoted paths so both local imports in RCTBridge.mm and
-          # <React/...> imports resolve correctly.
-          existing = build_config.build_settings['HEADER_SEARCH_PATHS'] || ['$(inherited)']
-          existing = [existing] unless existing.is_a?(Array)
-          existing = existing.flatten
-          react_header_dirs.each do |path|
-            existing << "\"#{path}\"" unless existing.include?("\"#{path}\"") || existing.include?(path)
-          end
-          build_config.build_settings['HEADER_SEARCH_PATHS'] = existing
-
-          # CocoaPods may separately populate USER_HEADER_SEARCH_PATHS for
-          # static framework targets. Mirror the same paths there.
-          user_existing = build_config.build_settings['USER_HEADER_SEARCH_PATHS'] || ['$(inherited)']
-          user_existing = [user_existing] unless user_existing.is_a?(Array)
-          user_existing = user_existing.flatten
-          react_header_dirs.each do |path|
-            user_existing << "\"#{path}\"" unless user_existing.include?("\"#{path}\"") || user_existing.include?(path)
-          end
-          build_config.build_settings['USER_HEADER_SEARCH_PATHS'] = user_existing
-        end
       end
     end
 
