@@ -50,72 +50,27 @@ target 'CoffeeLoyalty' do
       :mac_catalyst_enabled => false
     )
 
-    # React-Core + use_frameworks! workaround.
-    # Podfile is in ios/, node_modules is in the repository root.
+    # React Native 0.86.2 + use_frameworks! can lose the React source/header
+    # search paths for React-Core.common. Do NOT patch RCTBridge.mm itself:
+    # doing so makes the failure move from one RCT*.h to the next one.
+    # Instead, give every React-Core target the real RN source root and the
+    # React subdirectories. This also preserves imports such as
+    # <React/RCTInspectorPackagerConnection.h>.
     react_native_root = File.expand_path(
       '../node_modules/react-native',
       Pod::Config.instance.installation_root
     )
-    react_bridge_dir = File.join(react_native_root, 'React', 'Base')
-    react_bridge = File.join(react_bridge_dir, 'RCTBridge.mm')
+    react_root = File.join(react_native_root, 'React')
 
-    unless File.file?(react_bridge)
-      raise "React Native RCTBridge.mm not found at #{react_bridge}"
+    unless File.directory?(react_root)
+      raise "React Native React source directory not found at #{react_root}"
     end
 
-    # RN 0.86 + use_frameworks! can compile React-Core.common with a header
-    # search path that does not resolve RCT*.h imports made from RCTBridge.mm.
-    # Do not patch individual headers (the missing-header error simply moves
-    # to the next DevSupport/Inspector header). Instead resolve EVERY local
-    # RCT*.h import in RCTBridge.mm against the actual RN source tree and
-    # rewrite it to a relative include. This makes the fix future-proof for
-    # headers added/renamed within React/DevSupport.
-    source = File.read(react_bridge)
-    original_source = source
-    source = source.gsub(/#import\s+"(RCT[^"\/]+\.h)"/) do
-      header = Regexp.last_match(1)
-      matches = Dir.glob(File.join(react_native_root, 'React', '**', header)).select { |p| File.file?(p) }
-
-      if matches.empty?
-        # Leave unknown headers untouched so React Native can resolve them
-        # through its normal header maps.
-        Regexp.last_match(0)
-      else
-        # Prefer a header under the same React subtree when duplicate names
-        # exist, otherwise use the first exact source match.
-        chosen = matches.find { |p| p.start_with?(File.join(react_native_root, 'React', 'DevSupport', '')) } || matches.first
-        relative = Pathname.new(chosen).relative_path_from(Pathname.new(react_bridge_dir)).to_s
-        "#import \"#{relative}\""
-      end
+    react_header_dirs = [react_native_root, react_root]
+    Dir.glob(File.join(react_root, '**')).each do |path|
+      react_header_dirs << path if File.directory?(path)
     end
-
-    if source != original_source
-      File.write(react_bridge, source)
-    end
-
-    # Fail early if RCTBridge still contains a local RCT*.h import that exists
-    # in the React source tree but was not rewritten.
-    remaining = File.read(react_bridge).scan(/#import\s+"(RCT[^"\/]+\.h)"/).flatten
-    unresolved = remaining.select do |header|
-      Dir.glob(File.join(react_native_root, 'React', '**', header)).any? { |p| File.file?(p) }
-    end
-    unless unresolved.empty?
-      raise "React-Core RCTBridge.mm has unresolved local React headers: #{unresolved.join(', ')}"
-    end
-
-    # RCT-Folly workaround for Xcode's incompatible optional demangle.h.
-    folly_demangle = File.join(
-      Pod::Config.instance.sandbox_root.to_s,
-      'RCT-Folly', 'folly', 'Demangle.cpp'
-    )
-    if File.file?(folly_demangle)
-      source = File.read(folly_demangle)
-      patched = source.gsub(
-        '#if __has_include(<demangle.h>)',
-        '#if false && __has_include(<demangle.h>)'
-      )
-      File.write(folly_demangle, patched) if patched != source
-    end
+    react_header_dirs.uniq!
 
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
@@ -132,31 +87,41 @@ target 'CoffeeLoyalty' do
           definitions << 'RCT_REMOTE_PROFILE=0' unless definitions.include?('RCT_REMOTE_PROFILE=0')
           build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = definitions
 
-          react_header_root = File.join(react_native_root, 'React')
-          react_header_dirs = [
-            react_header_root,
-            File.join(react_header_root, 'Base'),
-            File.join(react_header_root, 'DevSupport'),
-            File.join(react_header_root, 'Inspector'),
-            File.join(react_header_root, 'Modules'),
-            File.join(react_header_root, 'Profiler'),
-            File.join(react_header_root, 'RCTBridge'),
-            File.join(react_header_root, 'Views'),
-            File.join(react_header_root, 'Views', 'ScrollView'),
-            File.join(react_header_root, 'Views', 'Text'),
-            File.join(react_header_root, 'Views', 'View'),
-            File.join(react_header_root, 'Views', 'SafeAreaView')
-          ].select { |path| File.directory?(path) }
-
+          # Use quoted paths so both local imports in RCTBridge.mm and
+          # <React/...> imports resolve correctly.
           existing = build_config.build_settings['HEADER_SEARCH_PATHS'] || ['$(inherited)']
           existing = [existing] unless existing.is_a?(Array)
           existing = existing.flatten
           react_header_dirs.each do |path|
-            existing << path unless existing.include?(path)
+            existing << "\"#{path}\"" unless existing.include?("\"#{path}\"") || existing.include?(path)
           end
           build_config.build_settings['HEADER_SEARCH_PATHS'] = existing
+
+          # CocoaPods may separately populate USER_HEADER_SEARCH_PATHS for
+          # static framework targets. Mirror the same paths there.
+          user_existing = build_config.build_settings['USER_HEADER_SEARCH_PATHS'] || ['$(inherited)']
+          user_existing = [user_existing] unless user_existing.is_a?(Array)
+          user_existing = user_existing.flatten
+          react_header_dirs.each do |path|
+            user_existing << "\"#{path}\"" unless user_existing.include?("\"#{path}\"") || user_existing.include?(path)
+          end
+          build_config.build_settings['USER_HEADER_SEARCH_PATHS'] = user_existing
         end
       end
+    end
+
+    # RCT-Folly workaround for Xcode's incompatible optional demangle.h.
+    folly_demangle = File.join(
+      Pod::Config.instance.sandbox_root.to_s,
+      'RCT-Folly', 'folly', 'Demangle.cpp'
+    )
+    if File.file?(folly_demangle)
+      source = File.read(folly_demangle)
+      patched = source.gsub(
+        '#if __has_include(<demangle.h>)',
+        '#if false && __has_include(<demangle.h>)'
+      )
+      File.write(folly_demangle, patched) if patched != source
     end
   end
 end
