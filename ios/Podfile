@@ -17,12 +17,11 @@ end
 
 platform :ios, '16.4'
 
-# React Native 0.86 ships React Native Core as a prebuilt XCFramework.
-# Building React-Core from source together with use_frameworks! causes
-# RCTBridge.mm to lose RN's generated/public header map and produces the
-# recurring RCT*.h "file not found" errors. Keep RN Core in prebuilt mode.
+# React Native 0.86 uses the prebuilt RN Core + prebuilt RN dependencies by default.
+# Keeping both enabled is important when use_frameworks! is used; opting out of
+# RN dependencies while keeping RN Core prebuilt creates an inconsistent header/module setup.
 ENV['RCT_USE_PREBUILT_RNCORE'] = '1'
-ENV['RCT_USE_RN_DEP'] = '0'
+ENV['RCT_USE_RN_DEP'] = '1'
 ENV['RCT_NEW_ARCH_ENABLED'] = '0'
 
 prepare_react_native_project!
@@ -31,6 +30,21 @@ use_frameworks! :linkage => :static
 $RNFirebaseAsStaticFramework = true
 $FirebaseSDKVersion = '11.7.0'
 $RNMapsAsStaticFramework = true
+
+# RN 0.86 + use_frameworks! + the prebuilt React Core module map can make RNFirebase
+# compile as a framework module. RNFirebase's Objective-C headers expose React typedefs
+# such as RCTPromiseRejectBlock, which then become unavailable during module precompilation.
+# Build RNFirebase pods as static libraries instead. This is the documented workaround
+# for this RN 0.86 module/header interaction and avoids changing RNFirebase source files.
+pre_install do |installer|
+  installer.pod_targets.each do |pod|
+    if pod.name.start_with?('RNFB')
+      def pod.build_type
+        Pod::BuildType.static_library
+      end
+    end
+  end
+end
 
 target 'CoffeeLoyalty' do
   config = use_native_modules!
@@ -53,7 +67,6 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-        build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
       end
     end
 
