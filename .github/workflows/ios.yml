@@ -53,16 +53,46 @@ jobs:
 
       - name: Clean stale Pods and DerivedData
         run: |
-          set -e
+          set -euo pipefail
           rm -rf ios/Pods
+          rm -rf build/DerivedData
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
-          echo "Cleaned ios/Pods and Xcode DerivedData."
+          echo "Cleaned ios/Pods, build/DerivedData and Xcode DerivedData."
 
       - name: Install CocoaPods dependencies
         working-directory: ios
+        shell: bash
         run: |
-          set -euo pipefail
-          pod install --repo-update --clean-install 2>&1 | tee ../pod-install.log
+          set -o pipefail
+          echo "========== COCOAPODS ENVIRONMENT =========="
+          ruby --version
+          gem --version
+          pod --version
+          node --version
+          npm --version
+          xcodebuild -version
+          echo "========== PODFILE =========="
+          sed -n '1,280p' Podfile
+          echo "========== POD INSTALL =========="
+          pod install --repo-update --clean-install --verbose 2>&1 | tee ../pod-install.log
+          status=${PIPESTATUS[0]}
+          echo "========== POD INSTALL EXIT CODE: ${status} =========="
+          if [ "${status}" -ne 0 ]; then
+            echo "========== POD INSTALL ERROR SUMMARY =========="
+            grep -n -E "(Error|ERROR|error:|NoMethodError|undefined method|Invalid|Could not|Unable|cannot|not found|Unable to find a specification)" ../pod-install.log | tail -n 120 || true
+            echo "========== POD INSTALL LAST 300 LINES =========="
+            tail -n 300 ../pod-install.log || true
+            exit "${status}"
+          fi
+
+      - name: Verify Pods
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -d ios/Pods
+          test -f ios/Podfile.lock
+          echo "========== PODS VERIFIED =========="
+          grep -E "^(  - React-Core|  - RCT-Folly|  - Firebase|  - GoogleMaps)" ios/Podfile.lock || true
 
       - name: Verify RCT-Folly demangle patch
         run: |
@@ -97,7 +127,7 @@ jobs:
 
       - name: Build for simulator
         run: |
-          set -euo pipefail
+          set -o pipefail
           export DEVELOPER_DIR="/Applications/Xcode_16.4.app/Contents/Developer"
           xcodebuild build \
             -workspace ios/CoffeeLoyalty.xcworkspace \
@@ -108,36 +138,33 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             2>&1 | tee xcodebuild.log
+          status=${PIPESTATUS[0]}
+          echo "========== XCODEBUILD EXIT CODE: ${status} =========="
+          exit "${status}"
 
       - name: Diagnose build failure
         if: failure()
         run: |
           echo "========== ERROR SUMMARY =========="
           if [ -f xcodebuild.log ]; then
-            grep -E "error:|fatal error:" xcodebuild.log | sort -u | head -40 || true
+            grep -E "error:|fatal error:" xcodebuild.log | sort -u | head -80 || true
             echo "========== failing target =========="
-            line=$(awk '/build commands failed:/{f=1} f && /\.o /{print; exit}' xcodebuild.log || true)
-            echo "$line"
-            tgt=$(echo "$line" | grep -oE "in target '[^']+'" | sed "s/in target '//;s/'//" | head -1 || true)
-            echo "failing target: $tgt"
-            if [ -n "$tgt" ]; then
-              resp=$(grep -oE "@[^ ]*${tgt}\.build/[^ ]*common-args\.resp" xcodebuild.log | head -1 | sed 's/^@//' || true)
-              echo "resp: $resp"
-              if [ -n "$resp" ] && [ -f "$resp" ]; then
-                echo "========== resp -I flags =========="
-                tr ' ' '\n' < "$resp" | grep -E '^-I' | head -100 || true
-              fi
-            fi
+            grep -n "error:" xcodebuild.log | tail -50 || true
           else
             echo "xcodebuild.log was not created; the failure occurred before the Xcode build step."
           fi
+          if [ -f pod-install.log ]; then
+            echo "========== POD INSTALL SUMMARY =========="
+            grep -n -E "(Error|ERROR|error:|NoMethodError|undefined method|Invalid|Could not|Unable|cannot|not found)" pod-install.log | tail -100 || true
+          fi
 
-      - name: Upload Xcode build log
+      - name: Upload build diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xcodebuild-log
+          name: ios-build-diagnostics
           if-no-files-found: ignore
           path: |
             xcodebuild.log
             pod-install.log
+            ios/Podfile.lock
