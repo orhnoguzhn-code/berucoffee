@@ -51,9 +51,10 @@ target 'CoffeeLoyalty' do
     )
 
     # React-Core + use_frameworks! workaround.
-    # RCTBridge imports DevSupport headers directly, while this static-library
-    # configuration does not expose React's generated umbrella header map.
-    # Use source-relative imports and disable the optional inspector path.
+    # RCTBridge imports DevSupport/Inspector headers directly, while this
+    # static-library configuration does not expose React's normal header map.
+    # Rewrite those imports to source-relative paths so the compiler does not
+    # depend on CocoaPods' generated framework header layout.
     react_bridge = File.join(
       Pod::Config.instance.installation_root,
       'node_modules', 'react-native', 'React', 'Base', 'RCTBridge.mm'
@@ -61,15 +62,15 @@ target 'CoffeeLoyalty' do
     if File.file?(react_bridge)
       source = File.read(react_bridge)
 
-      source = source.gsub(
-        '#import "RCTInspectorDevServerHelper.h"',
-        '#if RCT_ENABLE_INSPECTOR\n#import "../DevSupport/RCTInspectorDevServerHelper.h"\n#endif'
-      )
+      import_rewrites = {
+        '#import "RCTInspectorDevServerHelper.h"' => '#if RCT_ENABLE_INSPECTOR\n#import "../DevSupport/RCTInspectorDevServerHelper.h"\n#endif',
+        '#import "RCTDevLoadingViewProtocol.h"' => '#import "../DevSupport/RCTDevLoadingViewProtocol.h"',
+        '#import "RCTInspectorNetworkHelper.h"' => '#import "../DevSupport/RCTInspectorNetworkHelper.h"'
+      }
 
-      source = source.gsub(
-        '#import "RCTDevLoadingViewProtocol.h"',
-        '#import "../DevSupport/RCTDevLoadingViewProtocol.h"'
-      )
+      import_rewrites.each do |from, to|
+        source = source.gsub(from, to)
+      end
 
       File.write(react_bridge, source)
     end
@@ -96,10 +97,6 @@ target 'CoffeeLoyalty' do
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
 
         if target.name == 'React-Core' || target.name.start_with?('React-Core.')
-          # Inspector is not required for this CI simulator build. Explicitly
-          # disable it so RCTBridge does not compile the optional inspector
-          # dependency chain that is incompatible with this static-library
-          # React-Core integration.
           definitions = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
           definitions = [definitions] unless definitions.is_a?(Array)
           definitions = definitions.flatten
