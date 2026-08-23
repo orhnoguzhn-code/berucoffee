@@ -5,9 +5,9 @@ require Pod::Executable.execute_command('node', ['-p',
     {paths: [process.argv[1]]},
   )', __dir__]).strip
 
-require 'fileutils'
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
+# Expo SDK 57 / Xcode compatibility workaround.
 expo_jsi_package = File.dirname(`node --print "require.resolve('expo-modules-jsi/package.json')"`.strip)
 expo_jsi_date = File.join(expo_jsi_package, 'apple/Sources/ExpoModulesJSI/Coding/JavaScriptCodable+Date.swift')
 if File.file?(expo_jsi_date)
@@ -37,144 +37,41 @@ target 'CoffeeLoyalty' do
   )
 
   post_install do |installer|
-    react_native_post_install(installer, config[:reactNativePath], :mac_catalyst_enabled => false)
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false
+    )
 
-    folly_demangle = File.join(Pod::Config.instance.sandbox_root.to_s, 'RCT-Folly', 'folly', 'Demangle.cpp')
+    # RCT-Folly workaround: Xcode may expose a partial/incompatible
+    # demangle.h. Folly has a cxxabi fallback, so disable only its optional
+    # libiberty section at pod-install time.
+    folly_demangle = File.join(
+      Pod::Config.instance.sandbox_root.to_s,
+      'RCT-Folly',
+      'folly',
+      'Demangle.cpp'
+    )
     if File.file?(folly_demangle)
       source = File.read(folly_demangle)
-      patched = source.gsub('#if __has_include(<demangle.h>)', '#if false && __has_include(<demangle.h>)')
+      patched = source.gsub(
+        '#if __has_include(<demangle.h>)',
+        '#if false && __has_include(<demangle.h>)'
+      )
       File.write(folly_demangle, patched) if patched != source
     end
 
-    rn_abs = ENV['REACT_NATIVE_PATH'] || File.expand_path('../node_modules/react-native', __dir__)
-    rn_abs = File.realpath(rn_abs) if File.exist?(rn_abs)
-    sandbox_abs = Pod::Config.instance.sandbox_root.to_s
-
-    pod_target_map = {}
-    installer.pod_targets.each { |pt| pod_target_map[pt.name] = pt }
-
+    # Keep the CocoaPods-generated React Native header/module configuration
+    # intact. Do not recursively add every header directory to -I/HEADER_SEARCH_PATHS:
+    # doing so makes React-Core import its own generated framework headers while
+    # compiling the source headers from node_modules, causing duplicate
+    # RCTSurfaceView/RCTSurfaceProtocol definitions.
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
         build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
         build_config.build_settings['SWIFT_VERSION'] = '5.0'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         build_config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
-        build_config.build_settings['USE_HEADERMAP'] = 'NO'
-
-        unless target.name.start_with?('Pods-')
-          pt = pod_target_map[target.name]
-          dirs = ['$(PODS_TARGET_SRCROOT)']
-          if pt
-            sp = pt.respond_to?(:podspec) ? pt.podspec : nil
-            if sp && sp.respond_to?(:header_mappings_dir)
-              hmd = sp.header_mappings_dir
-              dirs << "$(PODS_TARGET_SRCROOT)/#{hmd}" if hmd && !hmd.to_s.empty?
-            end
-            shadow_dirs = %w[stdio.h stdlib.h string.h wchar.h math.h time.h locale.h signal.h]
-            hdr_targets = [pt]
-            hdr_targets += pt.recursive_dependent_targets if pt.respond_to?(:recursive_dependent_targets)
-            hdr_targets.each do |ptc|
-              pod_root = File.join(sandbox_abs, ptc.name)
-              next unless File.directory?(pod_root)
-              Dir.glob(File.join(pod_root, '**', '*.h')).each do |f|
-                d = File.dirname(f)
-                next if dirs.include?(d)
-                next if shadow_dirs.any? { |h| File.exist?(File.join(d, h)) }
-                dirs << d
-                parent = File.dirname(d)
-                dirs << parent unless dirs.include?(parent) || shadow_dirs.any? { |h| File.exist?(File.join(parent, h)) }
-              end
-            end
-          end
-
-          dirs.reject! do |d|
-            d.include?('/React-Core') || d.include?('/React.framework') || d.include?('/React-Core.common')
-          end
-          if target.name != 'GTMSessionFetcher'
-            dirs.reject! { |d| d.include?('/GTMSessionFetcher') || d.include?('\\GTMSessionFetcher') }
-          end
-
-          hsp = build_config.build_settings['HEADER_SEARCH_PATHS']
-          hsp = hsp.is_a?(String) ? hsp : (hsp.is_a?(Array) ? hsp.join(' ') : '$(inherited)')
-          quoted = dirs.map { |d| "\"#{d}\"" }.join(' ')
-          build_config.build_settings['HEADER_SEARCH_PATHS'] = "#{quoted} #{hsp}"
-          inc_flags = dirs.map { |d| "-I\"#{d}\"" }.join(' ')
-          build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'} #{inc_flags}"
-          build_config.build_settings['OTHER_CFLAGS'] = "#{build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'} #{inc_flags}"
-
-          if target.name == 'GTMSessionFetcher'
-            build_config.build_settings['FRAMEWORK_SEARCH_PATHS'] = '$(inherited)'
-            build_config.build_settings['OTHER_CFLAGS'] = (build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)').gsub(/-F"[^"]*GTMSessionFetcher[^"]*"/, '')
-            build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = (build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)').gsub(/-F"[^"]*GTMSessionFetcher[^"]*"/, '')
-            build_config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
-            build_config.build_settings['DEFINES_MODULE'] = 'YES'
-          end
-
-          if target.name.start_with?('Firebase') && target.name != 'FirebaseCore'
-            %w[HEADER_SEARCH_PATHS OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS].each do |key|
-              value = build_config.build_settings[key]
-              next unless value
-              pattern = key == 'HEADER_SEARCH_PATHS' ? /"[^"]*FirebaseCore[^"]*"/ : /-I"[^"]*FirebaseCore[^"]*"/
-              build_config.build_settings[key] = value.gsub(pattern, '').gsub(/\s+/, ' ').strip
-            end
-          end
-        end
-
-        if target.name.include?('React')
-          defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || []
-          defs = defs.is_a?(String) ? defs.split(' ') : [defs].flatten
-          defs = defs.map(&:to_s).reject { |d| d.start_with?('RCT_ENABLE_INSPECTOR') }
-          defs << 'RCT_ENABLE_INSPECTOR=0'
-          build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
-        end
-
-        if target.name.start_with?('React-') || target.name == 'React-Core' || target.name == 'ReactCommon' || target.name == 'RNReanimated' || target.name == 'RNWorklets'
-          abs_paths = [
-            "#{rn_abs}/React/DevSupport", "#{rn_abs}/React/Inspector", "#{rn_abs}/React", "#{rn_abs}/ReactCommon",
-            "#{rn_abs}/ReactCommon/react/nativemodule/core", "#{rn_abs}/ReactCommon/callinvoker", "#{rn_abs}/ReactCommon/runtime", "#{rn_abs}/ReactCommon/jsitooling",
-            File.join(sandbox_abs, 'glog'), File.join(sandbox_abs, 'boost'), File.join(sandbox_abs, 'DoubleConversion'),
-            File.join(sandbox_abs, 'fast_float', 'include'), File.join(sandbox_abs, 'fmt', 'include'), File.join(sandbox_abs, 'SocketRocket'),
-            File.join(sandbox_abs, 'RCT-Folly'), File.join(sandbox_abs, 'Headers', 'Public', 'ReactCommon')
-          ]
-          hsp = build_config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
-          quoted = abs_paths.map { |p| "\"#{p}\"" }.join(' ')
-          build_config.build_settings['HEADER_SEARCH_PATHS'] = "#{quoted} #{hsp}"
-          flags = build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] || '$(inherited)'
-          build_config.build_settings['OTHER_CPLUSPLUSFLAGS'] = "#{flags} #{abs_paths.map { |p| "-I\"#{p}\"" }.join(' ')}"
-          cflags = build_config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
-          build_config.build_settings['OTHER_CFLAGS'] = "#{cflags} #{abs_paths.map { |p| "-I\"#{p}\"" }.join(' ')}"
-        end
-
-        if target.name == 'React-Core'
-          # The failing compile is React-Core itself. Xcode is finding the
-          # already-generated React.framework Headers/RCT*.h in addition to
-          # node_modules/react-native/React/*.h. Strip every generated React
-          # product path from all header/include settings, not just framework
-          # search paths. This is essential because the inherited CocoaPods
-          # xcconfig can inject the product Headers directory directly into
-          # HEADER_SEARCH_PATHS and -I flags.
-          %w[HEADER_SEARCH_PATHS OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS].each do |key|
-            value = build_config.build_settings[key]
-            next unless value
-            value = value.is_a?(Array) ? value.join(' ') : value.to_s
-            value = value.gsub(/"[^"]*\/React-Core\.common\/React\.framework\/Headers"/, '')
-            value = value.gsub(/"[^"]*\/React\.framework\/Headers"/, '')
-            value = value.gsub(/-I"[^"]*\/React-Core\.common\/React\.framework\/Headers"/, '')
-            value = value.gsub(/-I"[^"]*\/React\.framework\/Headers"/, '')
-            value = value.gsub(/"[^"]*\/React-Core\.common\/Headers"/, '')
-            value = value.gsub(/\s+/, ' ').strip
-            build_config.build_settings[key] = value
-          end
-
-          fps = build_config.build_settings['FRAMEWORK_SEARCH_PATHS']
-          if fps
-            fps = fps.is_a?(String) ? fps : fps.join(' ')
-            fps = fps.gsub(/"[^"]*\/React-Core\.common[^"]*"/, '')
-            fps = fps.gsub(/"[^"]*\/React\.framework[^"]*"/, '')
-            build_config.build_settings['FRAMEWORK_SEARCH_PATHS'] = fps.gsub(/\s+/, ' ').strip
-          end
-          build_config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
-        end
       end
     end
   end
