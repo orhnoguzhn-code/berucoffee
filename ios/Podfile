@@ -56,6 +56,12 @@ target 'CoffeeLoyalty' do
   $FirebaseSDKVersion = '11.7.0'
   $RNMapsAsStaticFramework = true
 
+  # Explicitly install the Google Maps iOS subspec. AppDelegate.swift imports
+  # GoogleMaps directly, so CocoaPods must create the GoogleMaps module for the
+  # application target rather than relying on transitive/autolinking behavior.
+  rn_maps_path = File.dirname(`node --print "require.resolve('react-native-maps/package.json')"`.strip)
+  pod 'react-native-maps/Google', :path => rn_maps_path
+
   use_react_native!(
     :path => config[:reactNativePath],
     :hermes_enabled => podfile_properties['expo.jsEngine'] == nil || podfile_properties['expo.jsEngine'] == 'hermes',
@@ -65,7 +71,7 @@ target 'CoffeeLoyalty' do
 
   pre_install do |installer|
     installer.pod_targets.each do |pod|
-      if %w[RNFBApp RNFBAuth RNFBMessaging ReactNativeCameraKit].include?(pod.name)
+      if %w[RNFBApp RNFBAuth RNFBMessaging ReactNativeCameraKit GoogleMaps Google-Maps-iOS-Utils].include?(pod.name)
         def pod.build_type
           Pod::BuildType.static_library
         end
