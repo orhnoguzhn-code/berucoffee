@@ -14,7 +14,7 @@ class AppDelegate: ExpoAppDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
-    GMSServices.provideAPIKey("AIzaSyF6EKS6jEaNoMHXAqnBvlS6EyVzTtFLky4")
+    GMSServices.provideAPIKey("AIzaSyCeFKS6jEaNoMHXAqnBvlS6EyVzTtFLky4")
 
     let delegate = ReactNativeDelegate()
     let factory = ExpoReactNativeFactory(delegate: delegate)
