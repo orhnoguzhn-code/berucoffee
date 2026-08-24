@@ -62,8 +62,8 @@ jobs:
           set -euo pipefail
           base="node_modules/react-native/React/Base/RCTBridge.mm"
           test -f "$base"
-          perl -0pi -e 's/#import "RCTInspectorDevServerHelper\.h"/#if RCT_ENABLE_INSPECTOR\n#import "..\/DevSupport\/RCTInspectorDevServerHelper.h"\n#endif/g' "$base"
-          perl -0pi -e 's/#import "RCTDevLoadingViewProtocol\.h"/#import "..\/DevSupport\/RCTDevLoadingViewProtocol.h"/g' "$base"
+          perl -0pi -e 's/#import "RCTInspectorDevServerHelper\\.h"/#if RCT_ENABLE_INSPECTOR\n#import "..\\/DevSupport\\/RCTInspectorDevServerHelper.h"\n#endif/g' "$base"
+          perl -0pi -e 's/#import "RCTDevLoadingViewProtocol\\.h"/#import "..\\/DevSupport\\/RCTDevLoadingViewProtocol.h"/g' "$base"
 
       - name: Clean native build state
         shell: bash
@@ -143,9 +143,28 @@ jobs:
           echo "========== XCODEBUILD EXIT CODE: ${status} =========="
           exit "${status}"
 
+      - name: Check Apple signing configuration
+        id: signing_config
+        shell: bash
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          configured=true
+          for value in BUILD_CERTIFICATE_BASE64 P12_PASSWORD BUILD_PROVISION_PROFILE_BASE64 KEYCHAIN_PASSWORD; do
+            if [ -z "${!value:-}" ]; then
+              configured=false
+              echo "Missing signing secret: $value"
+            fi
+          done
+          echo "configured=$configured" >> "$GITHUB_OUTPUT"
+
       - name: Install Apple signing assets
         id: signing
-        if: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' && secrets.P12_PASSWORD != '' && secrets.BUILD_PROVISION_PROFILE_BASE64 != '' && secrets.KEYCHAIN_PASSWORD != '' }}
+        if: ${{ steps.signing_config.outputs.configured == 'true' }}
         shell: bash
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
@@ -263,7 +282,7 @@ jobs:
             build/CoffeeLoyalty.xcarchive
 
       - name: Explain missing signing configuration
-        if: ${{ steps.signing.outcome == 'skipped' }}
+        if: ${{ steps.signing_config.outputs.configured != 'true' }}
         shell: bash
         run: |
           echo "IPA export was skipped because Apple signing secrets are not configured."
