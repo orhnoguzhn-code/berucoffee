@@ -1,6 +1,5 @@
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), "scripts/autolinking")
 require File.join(File.dirname(`node --print "require.resolve('react-native/package.json')"`), "scripts/react_native_pods")
-
 require 'json'
 podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties.json'))) rescue {}
 
@@ -16,10 +15,6 @@ ENV['RCT_HERMES_V1_ENABLED'] ||= '0' if podfile_properties['expo.useHermesV1'] =
 ENV['EXPO_USE_PRECOMPILED_MODULES'] = '0' if podfile_properties['EXPO_USE_PRECOMPILED_MODULES'] == 'false'
 ENV['EXPO_USE_PRECOMPILED_MODULES'] ||= '1'
 
-# expo-modules-jsi 57.0.5 has an Xcode 26 Swift/C++ interop bug: Swift 6 rejects
-# SWIFT_RETURNS_RETAINED on RuntimeScheduler constructors. Remove only those
-# invalid ownership annotations. Do not rewrite weak references; SDK 57 expects
-# Xcode 26.4+ and Swift 6.3+ for its weak-let implementation.
 expo_jsi_package = File.dirname(`node --print "require.resolve('expo-modules-jsi/package.json')"`.strip)
 runtime_scheduler = File.join(expo_jsi_package, 'apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h')
 if File.file?(runtime_scheduler)
@@ -28,8 +23,18 @@ if File.file?(runtime_scheduler)
   File.write(runtime_scheduler, patched) if patched != source
 end
 
-platform :ios, podfile_properties['ios.deploymentTarget'] || '16.4'
+# CameraKit 18.0.x chooses the framework-qualified Swift generated header when
+# USE_FRAMEWORKS is set. This project builds CameraKit as a static library, so
+# always use the static-library header path.
+camera_kit_package = File.dirname(`node --print "require.resolve('react-native-camera-kit/package.json')"`.strip)
+camera_kit_swift_pre = File.join(camera_kit_package, 'ios/ReactNativeCameraKit/ReactNativeCameraKit-Swift.pre.h')
+if File.file?(camera_kit_swift_pre)
+  source = File.read(camera_kit_swift_pre)
+  patched = source.gsub(/#if CK_USE_FRAMEWORKS\n#import <ReactNativeCameraKit\/ReactNativeCameraKit-Swift\.h>\n#else\n#import <ReactNativeCameraKit-Swift\.h>\n#endif/, '#import <ReactNativeCameraKit-Swift.h>')
+  File.write(camera_kit_swift_pre, patched) if patched != source
+end
 
+platform :ios, podfile_properties['ios.deploymentTarget'] || '16.4'
 prepare_react_native_project!
 
 target 'CoffeeLoyalty' do
@@ -38,17 +43,7 @@ target 'CoffeeLoyalty' do
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"]
   else
-    config_command = [
-      'node',
-      '--no-warnings',
-      '--eval',
-      'require(\'expo/bin/autolinking\')',
-      'expo-modules-autolinking',
-      'react-native-config',
-      '--json',
-      '--platform',
-      'ios'
-    ]
+    config_command = ['node', '--no-warnings', '--eval', "require('expo/bin/autolinking')", 'expo-modules-autolinking', 'react-native-config', '--json', '--platform', 'ios']
   end
 
   config = use_native_modules!(config_command)
@@ -68,14 +63,9 @@ target 'CoffeeLoyalty' do
     :privacy_file_aggregation_enabled => podfile_properties['apple.privacyManifestAggregationEnabled'] != 'false',
   )
 
-  # React Native 0.86 + use_frameworks builds RNFirebase pods as framework
-  # modules. Their public Objective-C headers import React's non-modular headers,
-  # which causes RCTPromiseRejectBlock/RCT_EXPORT_METHOD module failures. Keep
-  # the RNFirebase bridge pods as static libraries; Firebase itself remains
-  # integrated using the static-framework configuration above.
   pre_install do |installer|
     installer.pod_targets.each do |pod|
-      if %w[RNFBApp RNFBAuth RNFBMessaging].include?(pod.name)
+      if %w[RNFBApp RNFBAuth RNFBMessaging ReactNativeCameraKit].include?(pod.name)
         def pod.build_type
           Pod::BuildType.static_library
         end
@@ -91,15 +81,10 @@ target 'CoffeeLoyalty' do
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
 
-    # react-native-camera-kit 18.0.x adds CK_USE_FRAMEWORKS whenever
-    # USE_FRAMEWORKS is present. Our project intentionally uses STATIC
-    # frameworks, so CameraKit's Swift generated header is a static-library
-    # header and must be imported as <ReactNativeCameraKit-Swift.h>, not
-    # <ReactNativeCameraKit/ReactNativeCameraKit-Swift.h>.
     installer.pods_project.targets.each do |target|
       if target.name == 'ReactNativeCameraKit'
         target.build_configurations.each do |config|
-          %w[OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS].each do |setting|
+          %w[OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS OTHER_SWIFT_FLAGS].each do |setting|
             value = config.build_settings[setting]
             if value.is_a?(String)
               config.build_settings[setting] = value.gsub('-DCK_USE_FRAMEWORKS=1', '')
