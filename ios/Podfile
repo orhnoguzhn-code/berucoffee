@@ -23,9 +23,6 @@ if File.file?(runtime_scheduler)
   File.write(runtime_scheduler, patched) if patched != source
 end
 
-# CameraKit 18.0.x chooses the framework-qualified Swift generated header when
-# USE_FRAMEWORKS is set. This project builds CameraKit as a static library, so
-# always use the static-library header path.
 camera_kit_package = File.dirname(`node --print "require.resolve('react-native-camera-kit/package.json')"`.strip)
 camera_kit_swift_pre = File.join(camera_kit_package, 'ios/ReactNativeCameraKit/ReactNativeCameraKit-Swift.pre.h')
 if File.file?(camera_kit_swift_pre)
@@ -55,12 +52,6 @@ target 'CoffeeLoyalty' do
   $RNFirebaseAsStaticFramework = true
   $FirebaseSDKVersion = '11.7.0'
   $RNMapsAsStaticFramework = true
-
-  # Explicitly install the Google Maps iOS subspec. AppDelegate.swift imports
-  # GoogleMaps directly, so CocoaPods must create the GoogleMaps module for the
-  # application target rather than relying on transitive/autolinking behavior.
-  rn_maps_path = File.dirname(`node --print "require.resolve('react-native-maps/package.json')"`.strip)
-  pod 'react-native-maps/Google', :path => rn_maps_path
 
   use_react_native!(
     :path => config[:reactNativePath],
