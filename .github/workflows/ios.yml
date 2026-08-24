@@ -60,10 +60,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base="node_modules/react-native/React/Base/RCTBridge.mm"
-          test -f "$base"
-          perl -0pi -e 's/#import "RCTInspectorDevServerHelper\\.h"/#if RCT_ENABLE_INSPECTOR\n#import "..\\/DevSupport\\/RCTInspectorDevServerHelper.h"\n#endif/g' "$base"
-          perl -0pi -e 's/#import "RCTDevLoadingViewProtocol\\.h"/#import "..\\/DevSupport\\/RCTDevLoadingViewProtocol.h"/g' "$base"
+          python3 <<'PY'
+          from pathlib import Path
+
+          base = Path("node_modules/react-native/React/Base/RCTBridge.mm")
+          if not base.is_file():
+              raise SystemExit(f"Missing React Native source: {base}")
+
+          text = base.read_text()
+
+          old = '#import "RCTInspectorDevServerHelper.h"'
+          new = '#if RCT_ENABLE_INSPECTOR\n#import "../DevSupport/RCTInspectorDevServerHelper.h"\n#endif'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif '#import "../DevSupport/RCTInspectorDevServerHelper.h"' not in text:
+              raise SystemExit("Expected RCTInspectorDevServerHelper import was not found")
+
+          old = '#import "RCTDevLoadingViewProtocol.h"'
+          new = '#import "../DevSupport/RCTDevLoadingViewProtocol.h"'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif '#import "../DevSupport/RCTDevLoadingViewProtocol.h"' not in text:
+              raise SystemExit("Expected RCTDevLoadingViewProtocol import was not found")
+
+          base.write_text(text)
+          print(f"Patched {base}")
+          PY
 
       - name: Clean native build state
         shell: bash
