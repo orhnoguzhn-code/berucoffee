@@ -7,39 +7,17 @@ require Pod::Executable.execute_command('node', ['-p',
 
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), 'scripts/autolinking')
 
-# Xcode 26 / Swift 6.x compatibility fixes for ExpoModulesJSI 57.
-# expo-modules-jsi 57.0.5 has Swift/C++ interop issues with recent Xcode:
-# - RuntimeScheduler constructors use invalid SWIFT_RETURNS_* annotations.
-# - weak let runtime references are rejected by Swift 6.
-# - weak var runtime storage then triggers strict Sendable checking.
-# Apply the minimal source-level compatibility fixes before CocoaPods builds the JSI slice.
+# Xcode 26 / Swift 6 compatibility fix for expo-modules-jsi 57.0.5.
+# Xcode 26 rejects SWIFT_RETURNS_RETAINED on RuntimeScheduler constructors.
+# Do not rewrite weak references here: Xcode 26.4+ supports the SDK 57 Swift
+# semantics and changing weak let -> weak var introduces Sendable diagnostics.
 expo_jsi_package = File.dirname(`node --print "require.resolve('expo-modules-jsi/package.json')"`.strip)
-expo_jsi_root = File.join(expo_jsi_package, 'apple/Sources/ExpoModulesJSI')
-expo_jsi_cxx = File.join(expo_jsi_package, 'apple/Sources/ExpoModulesJSI-Cxx')
+runtime_scheduler = File.join(expo_jsi_package, 'apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h')
 
-runtime_scheduler = File.join(expo_jsi_cxx, 'include/RuntimeScheduler.h')
 if File.file?(runtime_scheduler)
   source = File.read(runtime_scheduler)
   patched = source.gsub(/\bSWIFT_RETURNS_(?:RETAINED|UNRETAINED)\s+/, '')
   File.write(runtime_scheduler, patched) if patched != source
-end
-
-if Dir.exist?(expo_jsi_root)
-  Dir.glob(File.join(expo_jsi_root, '**/*.swift')).each do |file|
-    source = File.read(file)
-    patched = source
-      # Swift 6 requires weak storage to be mutable. The runtime is intentionally
-      # a weak cross-concurrency reference, so explicitly opt that storage out of
-      # actor isolation checking rather than changing the JSI ownership model.
-      .gsub(/\b(?:nonisolated\(unsafe\)\s+)?weak let\s+runtime\b/, 'nonisolated(unsafe) weak var runtime')
-      # Xcode 26 C++ interop can resolve abs() ambiguously.
-      .gsub('abs(milliseconds) <= maxJavaScriptDateMilliseconds', 'Swift.abs(milliseconds) <= maxJavaScriptDateMilliseconds')
-      # The compatibility script must be idempotent. Older versions of this
-      # workaround could accidentally produce @unchecked @unchecked Sendable.
-      .gsub(/@unchecked\s+@unchecked\s+Sendable/, '@unchecked Sendable')
-
-    File.write(file, patched) if patched != source
-  end
 end
 
 if File.file?(runtime_scheduler) && File.read(runtime_scheduler).match?(/\bSWIFT_RETURNS_(?:RETAINED|UNRETAINED)\b/)
@@ -49,8 +27,6 @@ end
 platform :ios, '16.4'
 
 ENV['RCT_USE_PREBUILT_RNCORE'] = '1'
-# Do not set RCT_USE_RN_DEP here. It makes React-RCTAppDelegate resolve from two
-# different source locations when Expo autolinking is also enabled.
 ENV['RCT_NEW_ARCH_ENABLED'] = '1'
 
 prepare_react_native_project!
@@ -59,6 +35,21 @@ use_frameworks! :linkage => :static
 $RNFirebaseAsStaticFramework = true
 $FirebaseSDKVersion = '11.7.0'
 $RNMapsAsStaticFramework = true
+
+# React Native 0.86 prebuilt headers + use_frameworks can make RNFirebase
+# pods into framework modules. RNFirebase's Objective-C public headers import
+# React headers, which triggers the RN 0.86 non-modular-header/module-import
+# failure. Keep RNFirebase's bridge pods as static libraries while Firebase's
+# underlying SDK remains linked through the static-framework integration.
+pre_install do |installer|
+  installer.pod_targets.each do |pod|
+    if %w[RNFBApp RNFBAuth RNFBMessaging].include?(pod.name)
+      def pod.build_type
+        Pod::BuildType.static_library
+      end
+    end
+  end
+end
 
 target 'CoffeeLoyalty' do
   config = use_native_modules!
