@@ -53,6 +53,11 @@ target 'CoffeeLoyalty' do
   $FirebaseSDKVersion = '11.7.0'
   $RNMapsAsStaticFramework = true
 
+  # AppDelegate.swift imports GoogleMaps directly. Link the Google Maps SDK
+  # itself instead of adding react-native-maps/Google, which conflicts with
+  # the autolinked react-native-maps pod source.
+  pod 'GoogleMaps'
+
   use_react_native!(
     :path => config[:reactNativePath],
     :hermes_enabled => podfile_properties['expo.jsEngine'] == nil || podfile_properties['expo.jsEngine'] == 'hermes',
