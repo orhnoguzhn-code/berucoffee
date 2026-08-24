@@ -51,9 +51,6 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf node_modules
-          # package.json and package-lock.json have been edited during the Expo
-          # upgrade. npm ci correctly refuses a stale lockfile, so regenerate the
-          # lock resolution in CI before applying Expo's SDK-compatible versions.
           npm install --no-audit --no-fund
           npx expo install --fix
           echo "Resolved dependency tree:"
@@ -146,6 +143,133 @@ jobs:
           echo "========== XCODEBUILD EXIT CODE: ${status} =========="
           exit "${status}"
 
+      - name: Install Apple signing assets
+        id: signing
+        if: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' && secrets.P12_PASSWORD != '' && secrets.BUILD_PROVISION_PROFILE_BASE64 != '' && secrets.KEYCHAIN_PASSWORD != '' }}
+        shell: bash
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
+          PP_PATH="$RUNNER_TEMP/build_pp.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
+          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o "$PP_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PP_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/build.mobileprovision"
+
+          PROFILE_PLIST="$RUNNER_TEMP/profile.plist"
+          security cms -D -i "$PP_PATH" -o "$PROFILE_PLIST"
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$PROFILE_PLIST")
+          APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$PROFILE_PLIST")
+          TEAM_ID="${APP_ID%%.*}"
+          BUNDLE_ID="${APP_ID#*.}"
+          CERT_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk -F '"' '/Apple Distribution|iPhone Distribution/ {print $2; exit}')
+
+          test -n "$PROFILE_NAME"
+          test -n "$TEAM_ID"
+          test -n "$BUNDLE_ID"
+          test -n "$CERT_IDENTITY"
+
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "TEAM_ID=$TEAM_ID" >> "$GITHUB_ENV"
+          echo "BUNDLE_ID=$BUNDLE_ID" >> "$GITHUB_ENV"
+          echo "CERT_IDENTITY=$CERT_IDENTITY" >> "$GITHUB_ENV"
+          echo "Signing assets installed for $BUNDLE_ID"
+
+      - name: Archive signed iOS app
+        if: ${{ steps.signing.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild archive \
+            -workspace ios/CoffeeLoyalty.xcworkspace \
+            -scheme CoffeeLoyalty \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/CoffeeLoyalty.xcarchive \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$CERT_IDENTITY" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
+            2>&1 | tee xcodebuild-archive.log
+
+      - name: Create IPA export options
+        if: ${{ steps.signing.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/ipa
+          cat > build/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>ad-hoc</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>teamID</key>
+            <string>$TEAM_ID</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$BUNDLE_ID</key>
+              <string>$PROFILE_NAME</string>
+            </dict>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>thinning</key>
+            <string>&lt;none&gt;</string>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Export IPA
+        if: ${{ steps.signing.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath build/CoffeeLoyalty.xcarchive \
+            -exportOptionsPlist build/ExportOptions.plist \
+            -exportPath build/ipa \
+            2>&1 | tee xcodebuild-export.log
+          test -f build/ipa/CoffeeLoyalty.ipa
+
+      - name: Upload IPA
+        if: ${{ steps.signing.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoffeeLoyalty-ipa
+          if-no-files-found: error
+          path: |
+            build/ipa/CoffeeLoyalty.ipa
+            build/CoffeeLoyalty.xcarchive
+
+      - name: Explain missing signing configuration
+        if: ${{ steps.signing.outcome == 'skipped' }}
+        shell: bash
+        run: |
+          echo "IPA export was skipped because Apple signing secrets are not configured."
+          echo "Required GitHub repository secrets: BUILD_CERTIFICATE_BASE64, P12_PASSWORD, BUILD_PROVISION_PROFILE_BASE64, KEYCHAIN_PASSWORD."
+          echo "The simulator build remains valid, but a real iPhone requires an Apple-signed archive and provisioning profile."
+
       - name: Diagnose build failure
         if: failure()
         shell: bash
@@ -153,6 +277,12 @@ jobs:
           echo "========== ERROR SUMMARY =========="
           if [ -f xcodebuild.log ]; then
             grep -E "error:|fatal error:" xcodebuild.log | sort -u | head -120 || true
+          fi
+          if [ -f xcodebuild-archive.log ]; then
+            grep -E "error:|fatal error:" xcodebuild-archive.log | sort -u | head -120 || true
+          fi
+          if [ -f xcodebuild-export.log ]; then
+            grep -E "error:|fatal error:" xcodebuild-export.log | sort -u | head -120 || true
           fi
           if [ -f ios/Podfile.lock ]; then
             echo "========== PODS =========="
@@ -167,4 +297,6 @@ jobs:
           if-no-files-found: ignore
           path: |
             xcodebuild.log
+            xcodebuild-archive.log
+            xcodebuild-export.log
             ios/Podfile.lock
