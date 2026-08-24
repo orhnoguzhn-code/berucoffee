@@ -90,5 +90,25 @@ target 'CoffeeLoyalty' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
+
+    # react-native-camera-kit 18.0.x adds CK_USE_FRAMEWORKS whenever
+    # USE_FRAMEWORKS is present. Our project intentionally uses STATIC
+    # frameworks, so CameraKit's Swift generated header is a static-library
+    # header and must be imported as <ReactNativeCameraKit-Swift.h>, not
+    # <ReactNativeCameraKit/ReactNativeCameraKit-Swift.h>.
+    installer.pods_project.targets.each do |target|
+      if target.name == 'ReactNativeCameraKit'
+        target.build_configurations.each do |config|
+          %w[OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS].each do |setting|
+            value = config.build_settings[setting]
+            if value.is_a?(String)
+              config.build_settings[setting] = value.gsub('-DCK_USE_FRAMEWORKS=1', '')
+            elsif value.is_a?(Array)
+              config.build_settings[setting] = value.reject { |flag| flag.to_s == '-DCK_USE_FRAMEWORKS=1' }
+            end
+          end
+        end
+      end
+    end
   end
 end
