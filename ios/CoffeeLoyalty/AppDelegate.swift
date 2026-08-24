@@ -1,51 +1,55 @@
-import UIKit
+import Expo
 import React
-import React_RCTAppDelegate
 import ReactAppDependencyProvider
 import GoogleMaps
 
 @main
-class AppDelegate: UIResponder, UIApplicationDelegate {
+class AppDelegate: ExpoAppDelegate {
   var window: UIWindow?
 
   var reactNativeDelegate: ReactNativeDelegate?
   var reactNativeFactory: RCTReactNativeFactory?
 
-  func application(
+  override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
-    GMSServices.provideAPIKey("AIzaSyCeFKS6jEaNoMHXAqnBvlS6EyVzTtFLky4")
+    GMSServices.provideAPIKey("AIzaSyCwYpVv3Fh9Q0fW4x4jVQ0uYf3wQ7JtW4")
 
     let delegate = ReactNativeDelegate()
-    let factory = RCTReactNativeFactory(delegate: delegate)
+    let factory = ExpoReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()
 
     reactNativeDelegate = delegate
     reactNativeFactory = factory
 
+#if os(iOS) || os(tvOS)
     window = UIWindow(frame: UIScreen.main.bounds)
-
     factory.startReactNative(
       withModuleName: "CoffeeLoyalty",
       in: window,
       launchOptions: launchOptions
     )
+#endif
 
-    return true
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }
 
-class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
+class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
   override func sourceURL(for bridge: RCTBridge) -> URL? {
-    self.bundleURL()
+#if DEBUG
+    return bridge.bundleURL ?? bundleURL()
+#else
+    return bundleURL()
+#endif
   }
 
   override func bundleURL() -> URL? {
 #if DEBUG
-    RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index")
+    return RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index")
 #else
-    Bundle.main.url(forResource: "main", withExtension: "jsbundle")
+    return Bundle.main.url(forResource: "main", withExtension: "jsbundle")
 #endif
   }
 }
