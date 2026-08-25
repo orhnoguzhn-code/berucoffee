@@ -100,6 +100,24 @@ jobs:
             exit 1
           fi
 
+      - name: Bundle React Native JavaScript and assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f ios/main.jsbundle
+          rm -rf ios/assets
+          npx react-native bundle \
+            --platform ios \
+            --entry-file index.js \
+            --dev false \
+            --minify true \
+            --reset-cache \
+            --bundle-output ios/main.jsbundle \
+            --assets-dest ios
+          test -s ios/main.jsbundle
+          echo "JS bundle created: $(wc -c < ios/main.jsbundle) bytes"
+          test -d ios/assets || true
+
       - name: Select iPhone Simulator
         id: simulator
         shell: bash
@@ -116,14 +134,14 @@ jobs:
           echo "Using simulator: $device"
           echo "name=$device" >> "$GITHUB_OUTPUT"
 
-      - name: Build unsigned iOS Simulator app
+      - name: Build Release iOS Simulator app
         shell: bash
         run: |
           set -o pipefail
           xcodebuild build \
             -workspace ios/CoffeeLoyalty.xcworkspace \
             -scheme CoffeeLoyalty \
-            -configuration Debug \
+            -configuration Release \
             -sdk iphonesimulator \
             -derivedDataPath build/DerivedData \
             -destination "platform=iOS Simulator,name=${{ steps.simulator.outputs.name }}" \
@@ -139,7 +157,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APP_PATH="build/DerivedData/Build/Products/Debug-iphonesimulator/CoffeeLoyalty.app"
+          APP_PATH="build/DerivedData/Build/Products/Release-iphonesimulator/CoffeeLoyalty.app"
           if [ ! -d "$APP_PATH" ]; then
             APP_PATH=$(find build/DerivedData/Build/Products -type d -name 'CoffeeLoyalty.app' -print -quit)
           fi
@@ -149,6 +167,8 @@ jobs:
           file "$APP_PATH/CoffeeLoyalty"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleSupportedPlatforms:0' "$APP_PATH/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :DTPlatformName' "$APP_PATH/Info.plist"
+          test -s "$APP_PATH/main.jsbundle"
+          echo "Bundled JS: $(wc -c < "$APP_PATH/main.jsbundle") bytes"
           echo "path=$APP_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Prepare Appetize upload directory
@@ -159,8 +179,9 @@ jobs:
           mkdir -p build/appetize
           cp -R "${{ steps.app.outputs.path }}" build/appetize/
           test -d build/appetize/CoffeeLoyalty.app
+          test -s build/appetize/CoffeeLoyalty.app/main.jsbundle
           echo "Appetize artifact contents:"
-          find build/appetize/CoffeeLoyalty.app -maxdepth 2 -type f | head -50
+          find build/appetize/CoffeeLoyalty.app -maxdepth 2 -type f | head -60
 
       - name: Upload Appetize artifact
         uses: actions/upload-artifact@v4
