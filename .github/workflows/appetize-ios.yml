@@ -8,7 +8,7 @@ on:
 jobs:
   build-ios-simulator:
     name: Build CoffeeLoyalty for Appetize
-    runs-on: macos-26
+    runs-on: macos-15
 
     steps:
       - name: Check out repository
@@ -20,23 +20,13 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Select Xcode
+      - name: Select Xcode 16.4
         shell: bash
         run: |
           set -euo pipefail
-          DEVELOPER_DIR=""
-          for candidate in \
-            /Applications/Xcode_26.6.app \
-            /Applications/Xcode_26.5.app \
-            /Applications/Xcode_26.4.1.app \
-            /Applications/Xcode_26.4.app; do
-            if [ -d "$candidate" ]; then
-              DEVELOPER_DIR="$candidate/Contents/Developer"
-              break
-            fi
-          done
-          if [ -z "$DEVELOPER_DIR" ]; then
-            echo "No compatible Xcode installation was found."
+          DEVELOPER_DIR="/Applications/Xcode_16.4.app/Contents/Developer"
+          if [ ! -d "$DEVELOPER_DIR" ]; then
+            echo "Xcode 16.4 not found"
             ls -d /Applications/Xcode*.app 2>/dev/null || true
             exit 1
           fi
@@ -115,9 +105,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 17/ {print $1; exit}' | xargs)
+          device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 16/ {print $1; exit}' | xargs)
           if [ -z "$device" ]; then
-            device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 16/ {print $1; exit}' | xargs)
+            device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 15/ {print $1; exit}' | xargs)
           fi
           if [ -z "$device" ]; then
             device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $1; exit}' | xargs)
@@ -144,7 +134,8 @@ jobs:
           status=${PIPESTATUS[0]}
           exit "$status"
 
-      - name: Package .app for Appetize
+      - name: Locate and validate .app
+        id: app
         shell: bash
         run: |
           set -euo pipefail
@@ -154,17 +145,29 @@ jobs:
           fi
           test -n "$APP_PATH"
           test -d "$APP_PATH"
+          echo "App path: $APP_PATH"
+          file "$APP_PATH/CoffeeLoyalty"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleSupportedPlatforms:0' "$APP_PATH/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :DTPlatformName' "$APP_PATH/Info.plist"
+          echo "path=$APP_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare Appetize upload directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build/appetize
           mkdir -p build/appetize
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "build/appetize/CoffeeLoyalty-iOS-Simulator.zip"
-          echo "Appetize package created: build/appetize/CoffeeLoyalty-iOS-Simulator.zip"
-          unzip -l "build/appetize/CoffeeLoyalty-iOS-Simulator.zip" | head -30
+          cp -R "${{ steps.app.outputs.path }}" build/appetize/
+          test -d build/appetize/CoffeeLoyalty.app
+          echo "Appetize artifact contents:"
+          find build/appetize/CoffeeLoyalty.app -maxdepth 2 -type f | head -50
 
       - name: Upload Appetize artifact
         uses: actions/upload-artifact@v4
         with:
           name: CoffeeLoyalty-iOS-Simulator-Appetize
           if-no-files-found: error
-          path: build/appetize/CoffeeLoyalty-iOS-Simulator.zip
+          path: build/appetize/CoffeeLoyalty.app
 
       - name: Upload build diagnostics
         if: always()
