@@ -8,7 +8,9 @@ on:
 jobs:
   build-ios-simulator:
     name: Build CoffeeLoyalty for Appetize
-    runs-on: macos-15
+    # ExpoModulesJSI now resolves a Swift package that requires Swift Tools 6.2.
+    # macOS 15 + Xcode 16.4 provides Swift 6.1 and cannot resolve it.
+    runs-on: macos-26
 
     steps:
       - name: Check out repository
@@ -20,19 +22,32 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Select Xcode 16.4
+      - name: Select Xcode 26.4+ (Swift 6.2)
         shell: bash
         run: |
           set -euo pipefail
-          DEVELOPER_DIR="/Applications/Xcode_16.4.app/Contents/Developer"
-          if [ ! -d "$DEVELOPER_DIR" ]; then
-            echo "Xcode 16.4 not found"
+          DEVELOPER_DIR=""
+          for candidate in \
+            /Applications/Xcode_26.6.app \
+            /Applications/Xcode_26.5.app \
+            /Applications/Xcode_26.4.1.app \
+            /Applications/Xcode_26.4.app; do
+            if [ -d "$candidate/Contents/Developer" ]; then
+              DEVELOPER_DIR="$candidate/Contents/Developer"
+              break
+            fi
+          done
+
+          if [ -z "$DEVELOPER_DIR" ]; then
+            echo "No Xcode 26.4+ installation was found on this runner."
             ls -d /Applications/Xcode*.app 2>/dev/null || true
             exit 1
           fi
+
           sudo xcode-select -switch "$DEVELOPER_DIR"
           echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
           xcodebuild -version
+          xcrun swift --version
 
       - name: Install JavaScript dependencies
         shell: bash
@@ -71,6 +86,7 @@ jobs:
           set -euo pipefail
           rm -rf ios/Pods ios/Podfile.lock build/DerivedData
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
+          rm -rf ~/Library/Caches/org.swift.swiftpm
 
       - name: Install CocoaPods 1.16.2
         shell: bash
@@ -118,14 +134,14 @@ jobs:
           echo "JS bundle created: $(wc -c < ios/main.jsbundle) bytes"
           test -d ios/assets || true
 
-      - name: Select iPhone Simulator
+      - name: Select available iPhone simulator
         id: simulator
         shell: bash
         run: |
           set -euo pipefail
-          device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 16/ {print $1; exit}' | xargs)
+          device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 17/ {print $1; exit}' | xargs)
           if [ -z "$device" ]; then
-            device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 15/ {print $1; exit}' | xargs)
+            device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 16/ {print $1; exit}' | xargs)
           fi
           if [ -z "$device" ]; then
             device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $1; exit}' | xargs)
