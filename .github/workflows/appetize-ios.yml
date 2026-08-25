@@ -1,0 +1,177 @@
+name: iOS Simulator - Appetize
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build-ios-simulator:
+    name: Build CoffeeLoyalty for Appetize
+    runs-on: macos-26
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Select Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEVELOPER_DIR=""
+          for candidate in \
+            /Applications/Xcode_26.6.app \
+            /Applications/Xcode_26.5.app \
+            /Applications/Xcode_26.4.1.app \
+            /Applications/Xcode_26.4.app; do
+            if [ -d "$candidate" ]; then
+              DEVELOPER_DIR="$candidate/Contents/Developer"
+              break
+            fi
+          done
+          if [ -z "$DEVELOPER_DIR" ]; then
+            echo "No compatible Xcode installation was found."
+            ls -d /Applications/Xcode*.app 2>/dev/null || true
+            exit 1
+          fi
+          sudo xcode-select -switch "$DEVELOPER_DIR"
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          xcodebuild -version
+
+      - name: Install JavaScript dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf node_modules
+          npm install --no-audit --no-fund
+          npx expo install --fix
+          npm ls expo expo-modules-jsi expo-modules-core react-native react --depth=0
+
+      - name: Patch React Native legacy imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          base = Path("node_modules/react-native/React/Base/RCTBridge.mm")
+          if not base.is_file():
+              raise SystemExit(f"Missing React Native source: {base}")
+          text = base.read_text()
+          old = '#import "RCTInspectorDevServerHelper.h"'
+          new = '#if RCT_ENABLE_INSPECTOR\n#import "../DevSupport/RCTInspectorDevServerHelper.h"\n#endif'
+          if old in text:
+              text = text.replace(old, new, 1)
+          old = '#import "RCTDevLoadingViewProtocol.h"'
+          new = '#import "../DevSupport/RCTDevLoadingViewProtocol.h"'
+          if old in text:
+              text = text.replace(old, new, 1)
+          base.write_text(text)
+          print(f"Patched {base}")
+          PY
+
+      - name: Clean native build state
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ios/Pods ios/Podfile.lock build/DerivedData
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*
+
+      - name: Install CocoaPods 1.16.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo gem install cocoapods -v 1.16.2 --no-document
+          GEM_BIN="$(ruby -e 'puts Gem.bindir')"
+          echo "$GEM_BIN" >> "$GITHUB_PATH"
+          export PATH="$GEM_BIN:$PATH"
+          pod --version
+
+      - name: Install CocoaPods dependencies
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          pod _1.16.2_ install --clean-install --repo-update
+
+      - name: Verify ExpoModulesJSI patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          scheduler="node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h"
+          test -f "$scheduler"
+          if grep -Eq 'SWIFT_RETURNS_(RETAINED|UNRETAINED)' "$scheduler"; then
+            echo "ExpoModulesJSI ownership annotations remain."
+            exit 1
+          fi
+
+      - name: Select iPhone Simulator
+        id: simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 17/ {print $1; exit}' | xargs)
+          if [ -z "$device" ]; then
+            device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 16/ {print $1; exit}' | xargs)
+          fi
+          if [ -z "$device" ]; then
+            device=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $1; exit}' | xargs)
+          fi
+          test -n "$device"
+          echo "Using simulator: $device"
+          echo "name=$device" >> "$GITHUB_OUTPUT"
+
+      - name: Build unsigned iOS Simulator app
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -workspace ios/CoffeeLoyalty.xcworkspace \
+            -scheme CoffeeLoyalty \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -derivedDataPath build/DerivedData \
+            -destination "platform=iOS Simulator,name=${{ steps.simulator.outputs.name }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            2>&1 | tee xcodebuild-appetize.log
+          status=${PIPESTATUS[0]}
+          exit "$status"
+
+      - name: Package .app for Appetize
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="build/DerivedData/Build/Products/Debug-iphonesimulator/CoffeeLoyalty.app"
+          if [ ! -d "$APP_PATH" ]; then
+            APP_PATH=$(find build/DerivedData/Build/Products -type d -name 'CoffeeLoyalty.app' -print -quit)
+          fi
+          test -n "$APP_PATH"
+          test -d "$APP_PATH"
+          mkdir -p build/appetize
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "build/appetize/CoffeeLoyalty-iOS-Simulator.zip"
+          echo "Appetize package created: build/appetize/CoffeeLoyalty-iOS-Simulator.zip"
+          unzip -l "build/appetize/CoffeeLoyalty-iOS-Simulator.zip" | head -30
+
+      - name: Upload Appetize artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoffeeLoyalty-iOS-Simulator-Appetize
+          if-no-files-found: error
+          path: build/appetize/CoffeeLoyalty-iOS-Simulator.zip
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoffeeLoyalty-iOS-Simulator-Diagnostics
+          if-no-files-found: ignore
+          path: |
+            xcodebuild-appetize.log
+            ios/Podfile.lock
