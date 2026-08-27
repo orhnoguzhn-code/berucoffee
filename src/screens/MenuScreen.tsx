@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, Image, FlatList, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -6,6 +6,7 @@ import { useI18n } from '../i18n/I18nContext';
 import { useCart } from '../context/CartContext';
 import api, { resolveImageUrl } from '../services/api';
 import Icon from '../components/ui/Icon';
+import { colors } from '../theme';
 
 export default function MenuScreen({ navigation }: any) {
   const { t, language } = useI18n();
@@ -16,62 +17,67 @@ export default function MenuScreen({ navigation }: any) {
   const [activeCat, setActiveCat] = useState<number | null>(null);
   const [search, setSearch] = useState('');
 
-  const localize = (item: any, field: string) => {
+  const localize = useCallback((item: any, field: string) => {
     const suffix = language === 'en' ? '_en' : language === 'de' ? '_de' : language === 'ru' ? '_ru' : '';
-    return item[field + suffix] || item[field];
-  };
+    return item[field + suffix] || item[field] || '';
+  }, [language]);
 
   const fetchMenu = useCallback(async () => {
+    setLoading(true);
     try {
-      const [catRes, itemRes] = await Promise.all([
+      const [categoryResponse, itemResponse] = await Promise.all([
         api.get('/menu/categories'),
         api.get('/menu/items'),
       ]);
-      const cats = catRes.data.data || [];
-      setCategories(cats);
-      setMenuItems(itemRes.data.data || []);
-      setActiveCat((prev) => prev ?? (cats[0]?.id ?? null));
-    } catch (err) {
-      console.log('Menu fetch error:', (err as Error).message);
+      const nextCategories = categoryResponse.data.data || [];
+      setCategories(nextCategories);
+      setMenuItems(itemResponse.data.data || []);
+      setActiveCat((previous) => previous ?? (nextCategories[0]?.id ?? null));
+    } catch (error: any) {
+      console.warn('Menü yüklenemedi:', error?.message || error);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { fetchMenu(); }, [fetchMenu]));
+  useFocusEffect(useCallback(() => {
+    void fetchMenu();
+  }, [fetchMenu]));
+
+  const activeCategory = useMemo(() => categories.find((category) => category.id === activeCat), [categories, activeCat]);
+  const countFor = useCallback((categoryId: number) => menuItems.filter((item) => item.category_id === categoryId).length, [menuItems]);
+  const isDrinkCategory = useCallback((category: any) => {
+    const name = localize(category, 'name').toUpperCase();
+    return name.includes('İÇECEK') || name.includes('DRINK') || name.includes('GETRÄNK') || name.includes('НАПИТК');
+  }, [localize]);
+
+  const filtered = useMemo(() => {
+    const byCategory = menuItems.filter((item) => item.category_id === activeCat);
+    const query = search.trim().toLocaleLowerCase(language === 'tr' ? 'tr-TR' : language);
+    return query ? byCategory.filter((item) => localize(item, 'name').toLocaleLowerCase(language === 'tr' ? 'tr-TR' : language).includes(query)) : byCategory;
+  }, [menuItems, activeCat, search, language, localize]);
+
+  const quickAdd = useCallback((item: any) => {
+    addItem({
+      menu_item_id: item.id,
+      item_name: localize(item, 'name'),
+      base_price: Number(item.price) || 0,
+    });
+  }, [addItem, localize]);
+
+  const inCartQty = useCallback((id: number) => {
+    const entry = items.find((item) => item.menu_item_id === id && !item.customization);
+    return entry ? { key: entry.key, qty: entry.quantity } : null;
+  }, [items]);
 
   if (loading) {
     return (
       <SafeAreaView className="flex-1 justify-center items-center bg-white">
-        <ActivityIndicator size="large" color="#0E7A4A" />
+        <ActivityIndicator size="large" color={colors.primary} />
         <Text className="mt-3 text-ink-muted text-sm">{t('common.loading')}</Text>
       </SafeAreaView>
     );
   }
-
-  const activeCategory = categories.find((c) => c.id === activeCat);
-  const countFor = (catId: number) => menuItems.filter((i) => i.category_id === catId).length;
-  const isDrinkCategory = (cat: any) => {
-    const name = localize(cat, 'name').toUpperCase();
-    return name.includes('İÇECEK') || name.includes('DRINK') || name.includes('GETRÄNK') || name.includes('НАПИТК');
-  };
-  const filteredByCat = menuItems.filter((i) => i.category_id === activeCat);
-  const filtered = search
-    ? filteredByCat.filter((i) => localize(i, 'name').toLowerCase().includes(search.toLowerCase()))
-    : filteredByCat;
-
-  const quickAdd = (item: any) => {
-    addItem({
-      menu_item_id: item.id,
-      item_name: localize(item, 'name'),
-      base_price: parseFloat(item.price) || 0,
-    });
-  };
-
-  const inCartQty = (id: number) => {
-    const entry = items.find((i) => i.menu_item_id === id && !i.customization);
-    return entry ? { key: entry.key, qty: entry.quantity } : null;
-  };
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={['top']}>
@@ -80,8 +86,14 @@ export default function MenuScreen({ navigation }: any) {
           <Text className="text-2xl font-extrabold text-ink">{t('menu.title')}</Text>
           <Text className="text-xs text-ink-muted mt-0.5">{t('menu.subtitle')}</Text>
         </View>
-        <TouchableOpacity className="w-11 h-11 rounded-full bg-primary-soft items-center justify-center" onPress={() => navigation.navigate('Cart')} activeOpacity={0.7}>
-          <Icon name="cart" size={20} color="#0E7A4A" />
+        <TouchableOpacity
+          className="w-11 h-11 rounded-full bg-primary-soft items-center justify-center"
+          onPress={() => navigation.navigate('Cart')}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`${t('menu.viewCart')}${itemCount > 0 ? `, ${itemCount} ürün` : ''}`}
+        >
+          <Icon name="cart" size={20} color={colors.primary} />
           {itemCount > 0 && (
             <View className="absolute -top-1 -right-1 min-w-5 h-5 rounded-full bg-primary items-center justify-center px-1 border-2 border-white">
               <Text className="text-white text-[10px] font-extrabold">{itemCount > 99 ? '99+' : itemCount}</Text>
@@ -91,50 +103,58 @@ export default function MenuScreen({ navigation }: any) {
       </View>
 
       <View className="flex-row items-center bg-white rounded-2xl h-12 mt-4 mx-4 px-4 shadow-sm shadow-black/5 border border-line">
-        <Icon name="search" size={17} color="#9CA3AF" />
+        <Icon name="search" size={17} color={colors.textMuted} />
         <TextInput
           className="flex-1 text-sm text-ink ml-2 py-0"
           value={search}
           onChangeText={setSearch}
           placeholder={t('menu.search')}
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={colors.textMuted}
+          returnKeyType="search"
+          accessibilityLabel={t('menu.search')}
         />
         {search ? (
-          <TouchableOpacity className="w-6 h-6 rounded-full bg-brand-soft items-center justify-center" onPress={() => setSearch('')}>
-            <Icon name="close" size={12} color="#0E7A4A" />
+          <TouchableOpacity
+            className="w-7 h-7 rounded-full bg-primary-soft items-center justify-center"
+            onPress={() => setSearch('')}
+            accessibilityRole="button"
+            accessibilityLabel="Aramayı temizle"
+          >
+            <Icon name="close" size={12} color={colors.primary} />
           </TouchableOpacity>
         ) : null}
       </View>
 
       {categories.length > 0 && (
         <View className="flex-row flex-wrap gap-3 px-4 mt-4">
-          {categories.map((cat: any) => {
-            const isActive = cat.id === activeCat;
+          {categories.map((category: any) => {
+            const isActive = category.id === activeCat;
+            const categoryName = localize(category, 'name');
             return (
               <TouchableOpacity
-                key={cat.id}
-                onPress={() => setActiveCat(cat.id)}
+                key={category.id}
+                onPress={() => setActiveCat(category.id)}
                 style={{ width: '48%' }}
-                className={`flex-row items-center gap-3 rounded-3xl p-3.5 border-[1.5px] ${isActive
-                  ? 'bg-primary border-primary-dark shadow-lg shadow-primary/30'
-                  : 'bg-white border-line shadow-sm shadow-black/5'
-                  }`}
+                className={`flex-row items-center gap-3 rounded-3xl p-3.5 border-[1.5px] ${isActive ? 'bg-primary border-primary-dark shadow-lg shadow-primary/30' : 'bg-white border-line shadow-sm shadow-black/5'}`}
                 activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={`${categoryName}, ${countFor(category.id)} ${t('menu.itemsLower')}`}
+                accessibilityState={{ selected: isActive }}
               >
                 <View className={`w-12 h-12 rounded-2xl items-center justify-center ${isActive ? 'bg-white/20' : 'bg-primary-soft'}`}>
-                  <Icon name={isDrinkCategory(cat) ? 'cup' : 'utensils'} size={24} color={isActive ? '#FFFFFF' : '#0E7A4A'} />
+                  <Icon name={isDrinkCategory(category) ? 'cup' : 'utensils'} size={24} color={isActive ? colors.white : colors.primary} />
                 </View>
                 <View className="flex-1">
                   <Text className={`text-[15px] font-bold leading-5 ${isActive ? 'text-white' : 'text-ink'}`} numberOfLines={1}>
-                    {localize(cat, 'name')}
+                    {categoryName}
                   </Text>
                   <Text className={`text-xs font-medium mt-0.5 ${isActive ? 'text-white/70' : 'text-ink-muted'}`}>
-                    {countFor(cat.id)} {t('menu.itemsLower')}
+                    {countFor(category.id)} {t('menu.itemsLower')}
                   </Text>
                 </View>
                 {isActive && (
                   <View className="w-5 h-5 rounded-full bg-white items-center justify-center">
-                    <Icon name="check" size={12} color="#0E7A4A" />
+                    <Icon name="check" size={12} color={colors.primary} />
                   </View>
                 )}
               </TouchableOpacity>
@@ -149,6 +169,9 @@ export default function MenuScreen({ navigation }: any) {
         numColumns={2}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 110 }}
         columnWrapperStyle={{ gap: 12 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        removeClippedSubviews
         ListHeaderComponent={
           <View className="mb-3">
             <Text className="text-lg font-extrabold text-ink tracking-tight">
@@ -159,25 +182,36 @@ export default function MenuScreen({ navigation }: any) {
         }
         renderItem={({ item }) => {
           const entry = inCartQty(item.id);
-          const price = parseFloat(item.price) || 0;
+          const price = Number(item.price) || 0;
+          const itemName = localize(item, 'name');
           return (
             <TouchableOpacity
               className="flex-1 bg-white rounded-3xl p-3.5 mb-3 border border-line shadow-sm shadow-black/5"
               onPress={() => navigation.navigate('ProductDetail', { item })}
               activeOpacity={0.9}
+              accessibilityRole="button"
+              accessibilityLabel={`${itemName}, ${price.toFixed(2)} Türk lirası`}
+              accessibilityHint="Ürün detayını açar"
             >
               <View className="relative h-24 rounded-2xl overflow-hidden bg-primary-soft items-center justify-center mb-3">
                 {item.image_url ? (
-                  <Image source={{ uri: resolveImageUrl(item.image_url) }} className="absolute inset-0 w-full h-full" resizeMode="cover" />
+                  <Image
+                    source={{ uri: resolveImageUrl(item.image_url) }}
+                    className="absolute inset-0 w-full h-full"
+                    resizeMode="cover"
+                    accessibilityIgnoresInvertColors
+                    accessible
+                    accessibilityLabel={itemName}
+                  />
                 ) : (
                   <>
                     <View className="absolute -top-6 -right-6 w-16 h-16 rounded-full bg-white/60" />
                     <View className="absolute -bottom-7 -left-7 w-20 h-20 rounded-full bg-white/30" />
-                    <Icon name="coffee" size={34} color="#0E7A4A" />
+                    <Icon name="coffee" size={34} color={colors.primary} />
                   </>
                 )}
               </View>
-              <Text className="text-sm font-bold text-ink leading-5" numberOfLines={2}>{localize(item, 'name')}</Text>
+              <Text className="text-sm font-bold text-ink leading-5" numberOfLines={2}>{itemName}</Text>
               {item.description ? (
                 <Text className="text-[11px] text-ink-muted leading-4 mt-1" numberOfLines={2}>{localize(item, 'description')}</Text>
               ) : null}
@@ -190,20 +224,20 @@ export default function MenuScreen({ navigation }: any) {
                       className="w-7 h-7 rounded-full bg-white items-center justify-center"
                       onPress={() => updateQuantity(entry.key, -1)}
                       activeOpacity={0.6}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${itemName} miktarını azalt`}
                     >
-                      <Icon name="minus" size={14} color="#0E7A4A" />
+                      <Icon name="minus" size={14} color={colors.primary} />
                     </TouchableOpacity>
-                    <Text className="text-white text-sm font-extrabold min-w-[26px] text-center">{entry.qty}</Text>
+                    <Text className="text-white text-sm font-extrabold min-w-[26px] text-center" accessibilityLabel={`Miktar ${entry.qty}`}>{entry.qty}</Text>
                     <TouchableOpacity
                       className="w-7 h-7 rounded-full bg-white items-center justify-center"
-                      onPress={() => addItem({
-                        menu_item_id: item.id,
-                        item_name: localize(item, 'name'),
-                        base_price: price,
-                      })}
+                      onPress={() => quickAdd(item)}
                       activeOpacity={0.6}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${itemName} miktarını artır`}
                     >
-                      <Icon name="plus" size={14} color="#0E7A4A" />
+                      <Icon name="plus" size={14} color={colors.primary} />
                     </TouchableOpacity>
                   </View>
                 ) : (
@@ -211,8 +245,10 @@ export default function MenuScreen({ navigation }: any) {
                     className="w-9 h-9 rounded-full bg-primary items-center justify-center shadow-md shadow-primary/40"
                     onPress={() => quickAdd(item)}
                     activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${itemName} sepete ekle`}
                   >
-                    <Icon name="plus" size={18} color="#FFFFFF" />
+                    <Icon name="plus" size={18} color={colors.white} />
                   </TouchableOpacity>
                 )}
               </View>
@@ -222,7 +258,7 @@ export default function MenuScreen({ navigation }: any) {
         ListEmptyComponent={
           <View className="py-16 items-center">
             <View className="w-20 h-20 rounded-[28px] bg-primary-tint items-center justify-center mb-4">
-              <Icon name="empty" size={34} color="#9CA3AF" />
+              <Icon name="empty" size={34} color={colors.textMuted} />
             </View>
             <Text className="text-sm font-semibold text-ink">{t('menu.empty')}</Text>
             <Text className="text-xs text-ink-muted mt-1">{search ? `"${search}"` : ''}</Text>
@@ -236,6 +272,8 @@ export default function MenuScreen({ navigation }: any) {
             className="h-16 rounded-[28px] bg-primary flex-row items-center justify-between px-5 shadow-xl shadow-black/30"
             onPress={() => navigation.navigate('Cart')}
             activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel={`${t('menu.viewCart')}, ${itemCount} ürün, toplam ${totalAmount.toFixed(2)} Türk lirası`}
           >
             <View className="flex-row items-center">
               <View className="w-9 h-9 rounded-full bg-white/20 items-center justify-center mr-3">
@@ -248,7 +286,7 @@ export default function MenuScreen({ navigation }: any) {
             </View>
             <View className="flex-row items-center gap-1">
               <Text className="text-white text-lg font-extrabold tracking-tight">₺{totalAmount.toFixed(2)}</Text>
-              <Icon name="arrow" size={16} color="#FFFFFF" />
+              <Icon name="arrow" size={16} color={colors.white} />
             </View>
           </TouchableOpacity>
         </View>
