@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STORAGE_KEY = 'beru_cart_v2';
+const LEGACY_STORAGE_KEY = 'beru_cart_v1';
 const MAX_ITEM_QUANTITY = 20;
 
 export interface CustomizationChoice {
@@ -58,20 +59,22 @@ function computeUnitPrice(base: number, choices: CustomizationChoice[] = []): nu
 
 function sanitizeItems(value: unknown): CartItem[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is CartItem => {
-    if (!item || typeof item !== 'object') return false;
-    const candidate = item as CartItem;
-    return Number.isFinite(candidate.menu_item_id)
-      && typeof candidate.item_name === 'string'
-      && Number.isFinite(candidate.unit_price)
-      && Number.isFinite(candidate.quantity)
-      && candidate.quantity > 0;
-  }).map((item) => ({
-    ...item,
-    unit_price: Math.max(0, Number(item.unit_price)),
-    quantity: Math.min(MAX_ITEM_QUANTITY, Math.max(1, Math.floor(Number(item.quantity)))),
-    note: typeof item.note === 'string' ? item.note.slice(0, 250) : '',
-  }));
+  return value
+    .filter((item): item is CartItem => {
+      if (!item || typeof item !== 'object') return false;
+      const candidate = item as CartItem;
+      return Number.isFinite(candidate.menu_item_id)
+        && typeof candidate.item_name === 'string'
+        && Number.isFinite(candidate.unit_price)
+        && Number.isFinite(candidate.quantity)
+        && candidate.quantity > 0;
+    })
+    .map((item) => ({
+      ...item,
+      unit_price: Math.max(0, Number(item.unit_price)),
+      quantity: Math.min(MAX_ITEM_QUANTITY, Math.max(1, Math.floor(Number(item.quantity)))),
+      note: typeof item.note === 'string' ? item.note.slice(0, 250) : '',
+    }));
 }
 
 export const CartProvider = ({ children }: { children: ReactNode }) => {
@@ -81,8 +84,15 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const load = async () => {
       try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        if (raw) setItems(sanitizeItems(JSON.parse(raw)));
+        const current = await AsyncStorage.getItem(STORAGE_KEY);
+        if (current) {
+          setItems(sanitizeItems(JSON.parse(current)));
+        } else {
+          const legacy = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+          const migrated = sanitizeItems(legacy ? JSON.parse(legacy) : []);
+          setItems(migrated);
+          if (migrated.length) await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+        }
       } catch (error) {
         console.warn('Sepet yüklenemedi:', error);
       } finally {
