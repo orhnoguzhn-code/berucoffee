@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
+import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../services/api';
 import { registerDeviceToken } from '../services/notification';
@@ -44,40 +44,54 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadUser();
+  const registerNotifications = useCallback(() => {
+    void registerDeviceToken().catch((error) => {
+      console.warn('Bildirim cihaz kaydı başarısız:', error);
+    });
   }, []);
 
-  const loadUser = async () => {
+  const applySession = useCallback(async (newToken: string, userData: User) => {
+    await AsyncStorage.setItem('token', newToken);
+    setToken(newToken);
+    setUser(userData);
+    registerNotifications();
+  }, [registerNotifications]);
+
+  const loadUser = useCallback(async () => {
+    setLoading(true);
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      if (storedToken) {
-        setToken(storedToken);
-        setLoading(false);
-        try {
-          const res = await api.get('/users/profile');
-          setUser(res.data.data);
-          setTimeout(() => registerDeviceToken(), 2000);
-          setTimeout(() => registerDeviceToken(), 6000);
-        } catch (err) {
-          console.log('Profile fetch error:', (err as Error).message);
-        }
+      if (!storedToken) {
+        setToken(null);
+        setUser(null);
         return;
       }
-    } catch (err) {
-      console.log('Load user error:', (err as Error).message);
+
+      setToken(storedToken);
+      const res = await api.get('/users/profile');
+      setUser(res.data.data);
+      registerNotifications();
+    } catch (error: any) {
+      if (error?.response?.status === 401) {
+        await AsyncStorage.removeItem('token');
+        setToken(null);
+        setUser(null);
+      } else {
+        console.warn('Kullanıcı bilgileri yüklenemedi:', error?.message || error);
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
+  }, [registerNotifications]);
+
+  useEffect(() => {
+    void loadUser();
+  }, [loadUser]);
 
   const login = async (identifier: string, password: string) => {
     const res = await api.post('/auth/login', { identifier, password });
     const { token: newToken, user: userData } = res.data.data;
-    await AsyncStorage.setItem('token', newToken);
-    setToken(newToken);
-    setUser(userData);
-    setTimeout(() => registerDeviceToken(), 2000);
-    setTimeout(() => registerDeviceToken(), 5000);
+    await applySession(newToken, userData);
     return res.data;
   };
 
@@ -94,22 +108,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const registerWithPhone = async (data: { phone: string; name: string; email: string; password?: string }) => {
     const res = await api.post('/auth/register-phone', data);
     const { token: newToken, user: userData } = res.data.data;
-    await AsyncStorage.setItem('token', newToken);
-    setToken(newToken);
-    setUser(userData);
-    setTimeout(() => registerDeviceToken(), 2000);
-    setTimeout(() => registerDeviceToken(), 5000);
+    await applySession(newToken, userData);
     return res.data;
   };
 
   const register = async (name: string, email: string, password: string, phone?: string) => {
-    const res = await api.post('/auth/register', { name, email, password, ...(phone ? { phone } : {}) });
+    const res = await api.post('/auth/register', {
+      name,
+      email,
+      password,
+      ...(phone ? { phone } : {}),
+    });
     const { token: newToken, user: userData } = res.data.data;
-    await AsyncStorage.setItem('token', newToken);
-    setToken(newToken);
-    setUser(userData);
-    setTimeout(() => registerDeviceToken(), 2000);
-    setTimeout(() => registerDeviceToken(), 5000);
+    await applySession(newToken, userData);
     return res.data;
   };
 
@@ -122,20 +133,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const loginWithFirebaseIdToken = async (idToken: string) => {
     const res = await api.post('/auth/phone', { idToken });
     const { token: newToken, user: userData } = res.data.data;
-    await AsyncStorage.setItem('token', newToken);
-    setToken(newToken);
-    setUser(userData);
-    setTimeout(() => registerDeviceToken(), 2000);
+    await applySession(newToken, userData);
     return res.data.data;
   };
 
   const updateProfile = async (data: Partial<User>) => {
     const res = await api.put('/users/profile', data);
-    setUser(prev => prev ? { ...prev, ...res.data.data } : null);
+    setUser((prev) => (prev ? { ...prev, ...res.data.data } : null));
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, register, loginWithFirebaseIdToken, loadUser, updateProfile, checkPhone, checkEmail, registerWithPhone }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        loading,
+        login,
+        logout,
+        register,
+        loginWithFirebaseIdToken,
+        loadUser,
+        updateProfile,
+        checkPhone,
+        checkEmail,
+        registerWithPhone,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
